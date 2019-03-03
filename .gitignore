@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+# --
+/.vs
+/Framework/bin
+/Framework/obj
+/Tessellation_STGA/bin
+/Tessellation_STGA/obj
+/Tessellation_STGA/Assets/Models
+/Tessellation_STGA/Assets/Textures
+/Tessellation_STGA/Assets/Skyboxes
