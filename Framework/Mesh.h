@@ -28,6 +28,8 @@ public:
 	ID3D11Buffer* index_buffer_notconst() const { return m_pIndexBuffer; }
 
 	u32 vertices() const { return m_vertices; }
+	void set_vertices(u32 v) { m_vertices = v; }
+
 	u32 indices() const { return m_indices; }
 
 private:

@@ -14,7 +14,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="MeshX.h">
+    <ClInclude Include="HeightMap.h">
       <Filter>Utils</Filter>
     </ClInclude>
   </ItemGroup>

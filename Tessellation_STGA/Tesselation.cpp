@@ -4,6 +4,8 @@
 #include "Mesh.h"
 #include "Texture.h"
 
+#include "HeightMap.h"
+
 //================================================================================
 // Normal Mapping Application
 // An example of how to work with normal maps.
@@ -67,6 +69,11 @@ public:
 
 		// Setup per-frame data
 		m_perFrameCBData.m_time = 0.0f;
+
+		if(!Heightmap::LoadHeightMap(systems.pD3DDevice, &m_terrain, "Assets/Textures/Terrain/mask_with_height.bmp", 1.f))
+		{
+			std::runtime_error("Failed to load Heightmap!");
+		}
 	}
 
 	void on_update(SystemsInterface& systems) override
@@ -139,12 +146,14 @@ public:
 		//Draw terrain plane
 		{
 			// Bind a mesh and texture.
-			m_floorPlane.bind(systems.pD3DContext);
+			//m_floorPlane.bind(systems.pD3DContext);
+			m_terrain.bind(systems.pD3DContext);
+
 			m_textures[0].bind(systems.pD3DContext, ShaderStage::kPixel, 0);
 			m_textures[1].bind(systems.pD3DContext, ShaderStage::kPixel, 1);
 
 			// Compute MVP matrix. -- 90 deg x rot * origin
-			m4x4 matWorld = m4x4::CreateRotationX(1.5708f) * m4x4::CreateTranslation(v3(0.0f, 0.0f, 0.f));
+			m4x4 matWorld = /*m4x4::CreateRotationX(1.5708f) * */m4x4::CreateTranslation(v3(0.0f, 0.0f, 0.f));
 			m4x4 matMVP = matWorld * systems.pCamera->vpMatrix;
 
 			// Update Per Draw Data
@@ -158,7 +167,9 @@ public:
 			push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
 
 			// Draw the mesh.
-			m_floorPlane.draw(systems.pD3DContext);
+			//m_floorPlane.draw(systems.pD3DContext);
+			systems.pD3DContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+			m_terrain.draw(systems.pD3DContext);
 		}
 
 		//Debug wireframe pass
@@ -203,6 +214,8 @@ public:
 
 			// Bind our set of shaders.
 			m_skyboxShaders.bind(systems.pD3DContext);
+
+			systems.pD3DContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 			m4x4 matView = systems.pCamera->viewMatrix;
 			matView.m[3][0] = 0.f;
@@ -257,6 +270,7 @@ private:
 
 	//Tesselation Assets
 	Mesh m_floorPlane;
+	Mesh m_terrain;
 	bool m_wireframe_pass = false;
 
 	//Skybox
