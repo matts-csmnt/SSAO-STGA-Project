@@ -1,1 +1,0 @@
-Selected parts of the directxtk
