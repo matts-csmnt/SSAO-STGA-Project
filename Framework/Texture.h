@@ -20,6 +20,10 @@ public:
 	// bind to the pipeline on a particular shader and slot
 	void bind(ID3D11DeviceContext* pDeviceContext, ShaderStage::ShaderStageEnum stage, u32 slot) const;
 
+	//Getters
+	ID3D11Resource* getResource() const { return m_pTexture; };
+	ID3D11ShaderResourceView* const* getSRV() { return &m_pTextureView; };
+
 private:
 	ID3D11Resource* m_pTexture;
 	ID3D11ShaderResourceView* m_pTextureView;

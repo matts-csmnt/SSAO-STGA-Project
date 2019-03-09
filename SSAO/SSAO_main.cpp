@@ -26,14 +26,26 @@ public:
 		m4x4 m_matViewProjection;
 		m4x4 m_matInverseProjection;
 		m4x4 m_matInverseView;
-		f32		m_time;
-		f32     m_padding[3];
+		f32	 m_time;
+		f32	 m_screenW;
+		f32	 m_screenH;
+		f32  m_padding;
 	};
 
 	struct PerDrawCBData
 	{
 		m4x4 m_matModel;
 		m4x4 m_matMVP;
+	};
+
+	struct SSAOCBData
+	{
+		float random_size;
+		float g_sample_rad;
+		float g_intensity;
+		float g_scale;
+		float g_bias;
+		float g_pad[3];
 	};
 
 	enum ELightType
@@ -86,14 +98,6 @@ public:
 		// Initialize a mesh from an .OBJ file
 		create_mesh_from_obj(systems.pD3DDevice, m_meshArray[0], "../Assets/Models/apple.obj", 0.01f);
 		create_mesh_from_obj(systems.pD3DDevice, m_plane, "../Assets/Models/plane.obj", 2.f);
-		//create_mesh_from_obj(systems.pD3DDevice, m_happy_buddha, "../Assets/Models/s_happy/dragon.obj", 2.f);
-
-		//FBX TEST
-		bool mOk = create_mesh_from_fbx(systems.pD3DDevice, m_s_dragon, "../Assets/Models/s_dragon/stanford-dragon.fbx");
-		if (!mOk)
-		{
-			panicF("Error Loading FBX");
-		}
 
 		// Initialise some textures;
 		m_textureArray[0].init_from_dds(systems.pD3DDevice, "../Assets/Textures/apple_diffuse.dds");
@@ -103,6 +107,19 @@ public:
 
 		// Setup per-frame data
 		m_perFrameCBData.m_time = 0.0f;
+		m_perFrameCBData.m_screenW = systems.width;
+		m_perFrameCBData.m_screenH = systems.height;
+
+		//SSAO---
+		bool mOk = create_mesh_from_fbx(systems.pD3DDevice, m_s_dragon, "../Assets/Models/s_dragon/stanford-dragon.fbx");
+		if (!mOk)
+		{
+			panicF("Error Loading FBX");
+		}
+
+		m_pSSAOCB = create_constant_buffer<SSAOCBData>(systems.pD3DDevice);
+
+		m_rndnrm.init_from_dds(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.dds");
 
 		//setup plane transforms
 		m_mmRoomPlanes[0] = m4x4::CreateTranslation(0.f, 0.f, 0.f);
@@ -167,6 +184,16 @@ public:
 		);
 		m_GBufferDebugShaders[kGBufferDebug_Depth].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Depth")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+
+		//SSAO---
+		m_SSAOShaders.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_01")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+		m_dbg_nrm.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_DEBUG_NRM")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
 
@@ -320,36 +347,54 @@ public:
 			m_s_dragon.draw(systems.pD3DContext);
 		}
 
-		constexpr f32 kGridSpacing = 1.5f;
-		constexpr u32 kNumInstances = 5;
-		constexpr u32 kNumModelTypes = 1;
+		// SSAO Pass
+		// Bind the swap chain (back buffer) to the render target
+		// Make sure to unbind other gbuffer targets and depth
+		ID3D11RenderTargetView* views[] = { systems.pSwapRenderTarget, 0 };
+		systems.pD3DContext->OMSetRenderTargets(2, views, 0);
 
-		// Bind our geometry pass shader.
-		m_geometryPassShader.bind(systems.pD3DContext);
+		ImGui::SliderFloat("Sample Radius", &m_sample_rad, 0.0f, 2.0f);
+		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
+		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
+		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
+		m_SSAOCBData.g_sample_rad = m_sample_rad;
+		m_SSAOCBData.g_intensity = m_intensity;
+		m_SSAOCBData.g_scale = m_scale;
+		m_SSAOCBData.g_bias = m_bias;
+		m_SSAOCBData.random_size = 64.0f;
 
-		//for (u32 i = 0; i < kNumModelTypes; ++i)
-		//{
-		//	// Bind a mesh and texture.
-		//	m_meshArray[i].bind(systems.pD3DContext);
-		//	m_textureArray[i].bind(systems.pD3DContext, ShaderStage::kPixel, 0);
+		// Push Data to GPU
+		D3D11_MAPPED_SUBRESOURCE sr;
+		if (!FAILED(systems.pD3DContext->Map(m_pSSAOCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr)))
+		{
+			memcpy(sr.pData, &m_SSAOCBData, sizeof(SSAOCBData));
+			systems.pD3DContext->Unmap(m_pSSAOCB, 0);
+		}
 
-		//	// Draw several instances
-		//	for (u32 j = 0; j < kNumInstances; ++j)
-		//	{
-		//		// Compute MVP matrix.
-		//		m4x4 matModel = m4x4::CreateTranslation(v3(j * kGridSpacing, i * kGridSpacing, 0.f));
-		//		m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
+		// Bind Constant Buffers, to both PS and VS stages
+		ID3D11Buffer* ssaoBuffers[] = { m_pPerFrameCB, m_pSSAOCB };
+		systems.pD3DContext->PSSetConstantBuffers(0, 2, ssaoBuffers);
 
-		//		// Update Per Draw Data
-		//		m_perDrawCBData.m_matMVP = matMVP.Transpose();
+		// Bind our GBuffer textures as inputs to the pixel shader
+		systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
+		// Bind a random normal map for help with sampling
+		m_rndnrm.bind(systems.pD3DContext, ShaderStage::kPixel, 3);
+		{
+			static bool debugNrms = false;
+			ImGui::Checkbox("Debug Normals", &debugNrms);
 
-		//		// Push to GPU
-		//		push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
+			if (!debugNrms)
+			{
+				m_SSAOShaders.bind(systems.pD3DContext);
+			}
+			else
+			{
+				m_dbg_nrm.bind(systems.pD3DContext);
+			}
 
-		//		// Draw the mesh.
-		//		m_meshArray[i].draw(systems.pD3DContext);
-		//	}
-		//}
+			m_fullScreenQuad.bind(systems.pD3DContext);
+			m_fullScreenQuad.draw(systems.pD3DContext);
+		}
 
 		//=======================================================================================
 		// The Lighting
@@ -357,91 +402,91 @@ public:
 		// We use additive blending on the result.
 		//=======================================================================================
 
-		// Bind the swap chain (back buffer) to the render target
-		// Make sure to unbind other gbuffer targets and depth
-		ID3D11RenderTargetView* views[] = { systems.pSwapRenderTarget, 0 };
-		systems.pD3DContext->OMSetRenderTargets(2, views, 0);
+		//// Bind the swap chain (back buffer) to the render target
+		//// Make sure to unbind other gbuffer targets and depth
+		//ID3D11RenderTargetView* views[] = { systems.pSwapRenderTarget, 0 };
+		//systems.pD3DContext->OMSetRenderTargets(2, views, 0);
 
-		// Bind our GBuffer textures as inputs to the pixel shader
-		systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
-
-
-		// For exploring the GBuffer data we use a shader.
-		// Bind GBuffer Debugging shader.
-		static int sel = 0;
-		static bool bDebugEnabled = true;
-		ImGui::Checkbox("GBuffer Debug Enable", &bDebugEnabled);
-		if (bDebugEnabled)
-		{
-			const char* aModeNames[] = { "Albido","Normals","Specular","Position","Depth" };
-			ImGui::ListBox("GBuffer Debug Mode", &sel, aModeNames, kMaxGBufferDebugModes);
-
-			m_GBufferDebugShaders[sel].bind(systems.pD3DContext);
-
-			// ... and draw a full screen quad.
-			m_fullScreenQuad.bind(systems.pD3DContext);
-			m_fullScreenQuad.draw(systems.pD3DContext);
-		}
-		else
-		{
-			// if we are not debugging the we bind the lighting shader and start accumulating light volumes.
-			// bind the light constant buffer
-			systems.pD3DContext->PSSetConstantBuffers(2, 1, &m_pLightInfoCB);
-
-			// Additive blend so we accumulate
-			systems.pD3DContext->OMSetBlendState(m_pBlendStates[BlendStates::kAdditive], kBlendFactor, kSampleMask);
-
-			static v4 tuneAtt(0.001f, 0.1f, 15.0f, 0.5f);
-			ImGui::DragFloat4("Light Att", (float*)&tuneAtt, 0.0001, 5.0f);
+		//// Bind our GBuffer textures as inputs to the pixel shader
+		//systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
 
 
-			static int maxLights = m_lights.size();
-			ImGui::SliderInt("Lights", &maxLights, 0, m_lights.size());
+		//// For exploring the GBuffer data we use a shader.
+		//// Bind GBuffer Debugging shader.
+		//static int sel = 0;
+		//static bool bDebugEnabled = true;
+		//ImGui::Checkbox("GBuffer Debug Enable", &bDebugEnabled);
+		//if (bDebugEnabled)
+		//{
+		//	const char* aModeNames[] = { "Albido","Normals","Specular","Position","Depth" };
+		//	ImGui::ListBox("GBuffer Debug Mode", &sel, aModeNames, kMaxGBufferDebugModes);
 
-			for (u32 i = 0; i < (u32)maxLights; ++i)
-			{
-				auto& rLight(m_lights[i]);
-				// For drawing a directional light which hits everywhere we draw a full screen quad.
+		//	m_GBufferDebugShaders[sel].bind(systems.pD3DContext);
 
-				// Update and the light info constants.
-				//	rLight.m_shaderInfo.m_vAtt = tuneAtt;
-				push_constant_buffer(systems.pD3DContext, m_pLightInfoCB, rLight.m_shaderInfo);
+		//	// ... and draw a full screen quad.
+		//	m_fullScreenQuad.bind(systems.pD3DContext);
+		//	m_fullScreenQuad.draw(systems.pD3DContext);
+		//}
+		//else
+		//{
+		//	// if we are not debugging the we bind the lighting shader and start accumulating light volumes.
+		//	// bind the light constant buffer
+		//	systems.pD3DContext->PSSetConstantBuffers(2, 1, &m_pLightInfoCB);
 
-				switch (rLight.m_type)
-				{
-				case kLightType_Directional:
-				{
-					m_directionalLightShader.bind(systems.pD3DContext);
-					m_fullScreenQuad.bind(systems.pD3DContext);
-					m_fullScreenQuad.draw(systems.pD3DContext);
-				}
-				break;
-				case kLightType_Point:
-				{
-					m_pointLightShader.bind(systems.pD3DContext);
+		//	// Additive blend so we accumulate
+		//	systems.pD3DContext->OMSetBlendState(m_pBlendStates[BlendStates::kAdditive], kBlendFactor, kSampleMask);
 
-					// Compute Light MVP matrix.
-					m4x4 matModel = m4x4::CreateScale(rLight.m_shaderInfo.m_vAtt.w); 
-					matModel *= m4x4::CreateTranslation(v3(rLight.m_shaderInfo.m_vPosition));
-					m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
+		//	static v4 tuneAtt(0.001f, 0.1f, 15.0f, 0.5f);
+		//	ImGui::DragFloat4("Light Att", (float*)&tuneAtt, 0.0001, 5.0f);
 
-					// Update Per Draw Data
-					m_perDrawCBData.m_matMVP = matMVP.Transpose();
-					push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
 
-					m_lightVolumeSphere.bind(systems.pD3DContext);
-					m_lightVolumeSphere.draw(systems.pD3DContext);
-				}
-				break;
-				case kLightType_Spot:
-					break;
-				default:
-					break;
+		//	static int maxLights = m_lights.size();
+		//	ImGui::SliderInt("Lights", &maxLights, 0, m_lights.size());
 
-				}
+		//	for (u32 i = 0; i < (u32)maxLights; ++i)
+		//	{
+		//		auto& rLight(m_lights[i]);
+		//		// For drawing a directional light which hits everywhere we draw a full screen quad.
 
-			}
-		}
+		//		// Update and the light info constants.
+		//		//	rLight.m_shaderInfo.m_vAtt = tuneAtt;
+		//		push_constant_buffer(systems.pD3DContext, m_pLightInfoCB, rLight.m_shaderInfo);
+
+		//		switch (rLight.m_type)
+		//		{
+		//		case kLightType_Directional:
+		//		{
+		//			m_directionalLightShader.bind(systems.pD3DContext);
+		//			m_fullScreenQuad.bind(systems.pD3DContext);
+		//			m_fullScreenQuad.draw(systems.pD3DContext);
+		//		}
+		//		break;
+		//		case kLightType_Point:
+		//		{
+		//			m_pointLightShader.bind(systems.pD3DContext);
+
+		//			// Compute Light MVP matrix.
+		//			m4x4 matModel = m4x4::CreateScale(rLight.m_shaderInfo.m_vAtt.w); 
+		//			matModel *= m4x4::CreateTranslation(v3(rLight.m_shaderInfo.m_vPosition));
+		//			m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
+
+		//			// Update Per Draw Data
+		//			m_perDrawCBData.m_matMVP = matMVP.Transpose();
+		//			push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
+
+		//			m_lightVolumeSphere.bind(systems.pD3DContext);
+		//			m_lightVolumeSphere.draw(systems.pD3DContext);
+		//		}
+		//		break;
+		//		case kLightType_Spot:
+		//			break;
+		//		default:
+		//			break;
+
+		//		}
+
+		//	}
+		//}
 
 		// Unbind all the SRVs because we need them as targets next frame
 		ID3D11ShaderResourceView* srvClear[] = { 0,0,0 };
@@ -631,6 +676,18 @@ private:
 	Mesh m_fullScreenQuad;
 	Mesh m_lightVolumeSphere;
 
+	//SSAO Shader Resources
+	Texture m_rndnrm;
+	ShaderSet m_SSAOShaders;
+	ShaderSet m_dbg_nrm;
+
+	SSAOCBData m_SSAOCBData;
+	ID3D11Buffer* m_pSSAOCB = nullptr;
+	float m_random_size;
+	float m_sample_rad;
+	float m_intensity;
+	float m_scale;
+	float m_bias;
 
 	// GBuffer objects
 	ID3D11Texture2D*		m_pGBufferTexture[kMaxGBufferTextures];
