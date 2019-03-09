@@ -1,0 +1,7 @@
+!*.obj
+
+# Things I won't need yet
+/s_happy
+xyzrgb_dragon.fbx
+/s_dragon/stanford_dragon.obj
+/s_dragon/stanford_dragon.mtl

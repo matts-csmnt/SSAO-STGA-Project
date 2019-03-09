@@ -1,0 +1,47 @@
+# Add any directories, files, or patterns you don't want to be tracked by version control
+
+# Add any directories, files, or patterns you don't want to be tracked by version control
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+
+# Executables
+*.exe
+*.out
+*.app
+
+# custom
+ipch/
+Debug/
+x64/Debug/
+.vs/
+*.db
+*.ipch
+
+/Framework/obj
+/Framework/bin
+/Deferred/obj
+/SSAO/obj
