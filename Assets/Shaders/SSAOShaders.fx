@@ -22,7 +22,8 @@ cbuffer SSAOCB : register(b1)
 	float g_intensity;
 	float g_scale;
 	float g_bias;
-	float g_pad[3];
+	int	  g_samples;
+	float g_pad[2];
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -145,7 +146,7 @@ float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
 	float rad = g_sample_rad / p.z;
 
 	//**SSAO Calculation**// 
-	int iterations = 4;
+	int iterations = g_samples;
 	for (int j = 0; j < iterations; ++j)
 	{
 		float2 coord1 = reflect(vec[j], rand)*rad;

@@ -81,7 +81,7 @@ bool create_mesh_from_fbx(ID3D11Device* pDevice, Mesh& meshOut, const std::strin
 	}
 	else
 	{
-		panicF("No mesh found in file.");
+		//panicF("No mesh found in file.");
 		return false;
 	}
 

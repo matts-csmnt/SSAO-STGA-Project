@@ -45,7 +45,8 @@ public:
 		float g_intensity;
 		float g_scale;
 		float g_bias;
-		float g_pad[3];
+		int g_samples;
+		float g_pad[2];
 	};
 
 	enum ELightType
@@ -96,11 +97,7 @@ public:
 		m_pLightInfoCB = create_constant_buffer<LightInfo>(systems.pD3DDevice);
 
 		// Initialize a mesh from an .OBJ file
-		create_mesh_from_obj(systems.pD3DDevice, m_meshArray[0], "../Assets/Models/apple.obj", 0.01f);
 		create_mesh_from_obj(systems.pD3DDevice, m_plane, "../Assets/Models/plane.obj", 2.f);
-
-		// Initialise some textures;
-		m_textureArray[0].init_from_dds(systems.pD3DDevice, "../Assets/Textures/apple_diffuse.dds");
 
 		// We need a sampler state to define wrapping and mipmap parameters.
 		m_pSamplerState = create_basic_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
@@ -119,7 +116,8 @@ public:
 
 		m_pSSAOCB = create_constant_buffer<SSAOCBData>(systems.pD3DDevice);
 
-		m_rndnrm.init_from_dds(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.dds");
+		//m_rndnrm.init_from_dds(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.dds");
+		m_rndnrm.init_from_image(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.png", false);
 
 		//setup plane transforms
 		m_mmRoomPlanes[0] = m4x4::CreateTranslation(0.f, 0.f, 0.f);
@@ -357,11 +355,14 @@ public:
 		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
+		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
+
 		m_SSAOCBData.g_sample_rad = m_sample_rad;
 		m_SSAOCBData.g_intensity = m_intensity;
 		m_SSAOCBData.g_scale = m_scale;
 		m_SSAOCBData.g_bias = m_bias;
 		m_SSAOCBData.random_size = 64.0f;
+		m_SSAOCBData.g_samples = m_samples_mult;
 
 		// Push Data to GPU
 		D3D11_MAPPED_SUBRESOURCE sr;
@@ -688,6 +689,7 @@ private:
 	float m_intensity;
 	float m_scale;
 	float m_bias;
+	int m_samples_mult = 1;
 
 	// GBuffer objects
 	ID3D11Texture2D*		m_pGBufferTexture[kMaxGBufferTextures];
