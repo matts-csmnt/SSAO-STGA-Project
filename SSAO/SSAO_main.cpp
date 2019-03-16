@@ -249,6 +249,16 @@ public:
 		// Imgui can also be used inside the render function.
 		//////////////////////////////////////////////////////////////////////////
 
+		//SSAO values for Constant buffer
+		ImGui::SliderFloat("Sample Radius", &m_sample_rad, 0.0f, 2.0f);
+		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
+		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
+		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
+		m_SSAOCBData.g_sample_rad = m_sample_rad;
+		m_SSAOCBData.g_intensity = m_intensity;
+		m_SSAOCBData.g_scale = m_scale;
+		m_SSAOCBData.g_bias = m_bias;
+		m_SSAOCBData.random_size = 64.0f;
 
 		//////////////////////////////////////////////////////////////////////////
 		// You can use features from the DebugDrawlibrary.
@@ -291,10 +301,19 @@ public:
 		systems.pD3DContext->ClearRenderTargetView(m_pGBufferTargetViews[kGBufferNormalPow], normalClearValue);
 		systems.pD3DContext->ClearDepthStencilView(m_pGBufferDepthView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
+		// SSAO Constant buffer
+		// Push Data to GPU
+		D3D11_MAPPED_SUBRESOURCE sr;
+		if (!FAILED(systems.pD3DContext->Map(m_pSSAOCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr)))
+		{
+			memcpy(sr.pData, &m_SSAOCBData, sizeof(SSAOCBData));
+			systems.pD3DContext->Unmap(m_pSSAOCB, 0);
+		}
+
 		// Bind Constant Buffers, to both PS and VS stages
-		ID3D11Buffer* buffers[] = { m_pPerFrameCB, m_pPerDrawCB };
-		systems.pD3DContext->VSSetConstantBuffers(0, 2, buffers);
-		systems.pD3DContext->PSSetConstantBuffers(0, 2, buffers);
+		ID3D11Buffer* buffers[] = { m_pPerFrameCB, m_pPerDrawCB, m_pSSAOCB };
+		systems.pD3DContext->VSSetConstantBuffers(0, 3, buffers);
+		systems.pD3DContext->PSSetConstantBuffers(0, 3, buffers);
 
 		// Bind a sampler state
 		ID3D11SamplerState* samplers[] = { m_pSamplerState };
@@ -353,27 +372,7 @@ public:
 		ID3D11RenderTargetView* views[] = { systems.pSwapRenderTarget, 0 };
 		systems.pD3DContext->OMSetRenderTargets(2, views, 0);
 
-		ImGui::SliderFloat("Sample Radius", &m_sample_rad, 0.0f, 2.0f);
-		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
-		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
-		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
-		m_SSAOCBData.g_sample_rad = m_sample_rad;
-		m_SSAOCBData.g_intensity = m_intensity;
-		m_SSAOCBData.g_scale = m_scale;
-		m_SSAOCBData.g_bias = m_bias;
-		m_SSAOCBData.random_size = 64.0f;
 
-		// Push Data to GPU
-		D3D11_MAPPED_SUBRESOURCE sr;
-		if (!FAILED(systems.pD3DContext->Map(m_pSSAOCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr)))
-		{
-			memcpy(sr.pData, &m_SSAOCBData, sizeof(SSAOCBData));
-			systems.pD3DContext->Unmap(m_pSSAOCB, 0);
-		}
-
-		// Bind Constant Buffers, to both PS and VS stages
-		ID3D11Buffer* ssaoBuffers[] = { m_pPerFrameCB, m_pSSAOCB };
-		systems.pD3DContext->PSSetConstantBuffers(0, 2, ssaoBuffers);
 
 		// Bind our GBuffer textures as inputs to the pixel shader
 		systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
@@ -520,6 +519,7 @@ private:
 		kGBufferDebug_Specular,
 		kGBufferDebug_Position,
 		kGBufferDebug_Depth,
+		kGBufferDebug_SSAO,
 		kMaxGBufferDebugModes
 	};
 
