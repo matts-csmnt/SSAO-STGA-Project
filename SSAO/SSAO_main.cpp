@@ -84,6 +84,8 @@ public:
 
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
 
+		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
+
 		// create fullscreen quad for post-fx / lighting passes. (-1, 1) in XY
 		create_mesh_quad_xy(systems.pD3DDevice, m_fullScreenQuad, 1.0f);
 
@@ -192,6 +194,10 @@ public:
 		);
 		m_dbg_nrm.init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_DEBUG_NRM")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+		m_GaussBlur.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
 
@@ -376,9 +382,11 @@ public:
 		// We use additive blending on the result.
 		//=======================================================================================
 
-		//// Bind the swap chain (back buffer) to the render target
-		//// Make sure to unbind other gbuffer targets and depth
-		ID3D11RenderTargetView* views[] = { systems.pSwapRenderTarget, 0 };
+		systems.pD3DContext->ClearRenderTargetView(m_pPostFXRTV, clearValue);
+
+		// Bind the postfx target to the render target
+		// Make sure to unbind other gbuffer targets and depth
+		ID3D11RenderTargetView* views[] = { m_pPostFXRTV,0 };
 		systems.pD3DContext->OMSetRenderTargets(2, views, 0);
 
 		// Bind our GBuffer textures as inputs to the pixel shader
@@ -515,6 +523,21 @@ public:
 			m_fullScreenQuad.draw(systems.pD3DContext);
 		}
 
+		//Do blur
+		// Bind the swap chain (back buffer) to the render target
+		// Make sure to unbind other gbuffer targets and depth
+		views[0] = systems.pSwapRenderTarget;
+		systems.pD3DContext->OMSetRenderTargets(2, views, 0);
+		systems.pD3DContext->PSSetShaderResources(0, 1, &m_pPostFXSRV);	
+		{
+			m_GaussBlur.bind(systems.pD3DContext);
+
+			m_fullScreenQuad.bind(systems.pD3DContext);
+			m_fullScreenQuad.draw(systems.pD3DContext);
+		}
+		
+		//End passes
+
 		// Unbind all the SRVs because we need them as targets next frame
 		ID3D11ShaderResourceView* srvClear[] = { 0,0,0 };
 		systems.pD3DContext->PSSetShaderResources(0, 3, srvClear);
@@ -526,6 +549,7 @@ public:
 	void on_resize(SystemsInterface& systems) override
 	{
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
+		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
 	}
 
 private:
@@ -660,6 +684,54 @@ private:
 		}
 	}
 
+	void create_postfx_resources(ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext, u32 width, u32 height)
+	{
+		HRESULT hr;
+
+		SAFE_RELEASE(m_pPostFXRTV);
+		SAFE_RELEASE(m_pPostFXTexture);
+		SAFE_RELEASE(m_pPostFXSRV);
+
+		// Create a colour buffers
+		D3D11_TEXTURE2D_DESC desc;
+		desc.Width = width;
+		desc.Height = height;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; // 4 component f16 targets
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		desc.CPUAccessFlags = 0;
+		desc.MiscFlags = 0;
+
+		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pPostFXTexture);
+		if (FAILED(hr))
+		{
+			panicF("Failed colour texture for PostFx");
+		}
+
+		// render target views.
+		hr = pD3DDevice->CreateRenderTargetView(m_pPostFXTexture, NULL, &m_pPostFXRTV);
+		if (FAILED(hr))
+		{
+			panicF("Failed colour target view for PostFx");
+		}
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = desc.Format;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+		srvDesc.Texture2D.MipLevels = 1;
+
+		hr = pD3DDevice->CreateShaderResourceView(m_pPostFXTexture, &srvDesc, &m_pPostFXSRV);
+		if (FAILED(hr))
+		{
+			panicF("Failed to create SRV of Target for PostFx");
+		}
+	}
+
 private:
 
 	enum BlendStates
@@ -707,6 +779,7 @@ private:
 	Texture m_rndnrm;
 	ShaderSet m_SSAOShaders;
 	ShaderSet m_dbg_nrm;
+	ShaderSet m_GaussBlur;
 
 	SSAOCBData m_SSAOCBData;
 	ID3D11Buffer* m_pSSAOCB = nullptr;
@@ -716,6 +789,11 @@ private:
 	float m_scale;
 	float m_bias;
 	int m_samples_mult = 1;
+
+	//PostFx
+	ID3D11Texture2D*			m_pPostFXTexture = nullptr;
+	ID3D11RenderTargetView*		m_pPostFXRTV = nullptr;
+	ID3D11ShaderResourceView*	m_pPostFXSRV = nullptr;
 
 	// GBuffer objects
 	ID3D11Texture2D*		m_pGBufferTexture[kMaxGBufferTextures];

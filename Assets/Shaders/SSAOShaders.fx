@@ -129,10 +129,18 @@ float2 getRandom(float2 uv)
 
 float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 {
-	float3 diff = getPosition(tcoord + uv) - p;
+	float3 sample = getPosition(tcoord + uv);
+	float3 diff = sample - p;
 	const float3 v = normalize(diff);
 	const float d = length(diff)*g_scale; //scales distance between occluders and occludee.;
-	return max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
+	
+	//range check it so we don't get grey halos around everything
+	float val =  max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
+
+	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
+	//Check if sample is in range of geometry and is not behind something
+	float rangeCheck = abs(getPosition(tcoord).z - sample.z) < g_sample_rad ? 1.0 : 0.0;
+	return val *= (getPosition(tcoord).z <= sample.z ? 1.0 : 0.0) * rangeCheck;
 }
 
 float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
@@ -160,13 +168,62 @@ float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
 
 	ao /= (float)iterations*4.0;
 
-	float3 outCol = float3(gBufferColourSpec.Sample(linearMipSampler, i.uv).xyz);
-	outCol -= ao;
-	o = float4(outCol, 1.0f);
-
 	//**END**// 
 	//Do stuff here with your occlusion value ao modulate ambient lighting, write it to a buffer for later 
 	//use, etc. 
 
+	float3 outCol = float3(gBufferColourSpec.Sample(linearMipSampler, i.uv).xyz);
+	outCol -= ao;
+	o = float4(outCol, 1.0f);
+
 	return o;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Other Effects -- Blurs...
+///////////////////////////////////////////////////////////////////////////////
+
+//https://www.shadertoy.com/view/XdfGDH
+
+float normpdf(float x, float sigma)
+{
+	return 0.39894*exp(-0.5*x*x / (sigma*sigma)) / sigma;
+}
+
+float4 PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
+{
+	float3 c = gBufferColourSpec.Sample(linearMipSampler, input.uv).xyz;
+
+	//declare stuff
+	const int mSize = 11;
+	const int kSize = (mSize - 1) / 2;
+	float kernel[mSize];
+	float3 final_colour = float3(0.0, 0.0, 0.0);
+
+	//create the 1-D kernel
+	float sigma = 7.0;
+	float Z = 0.0;
+	for (int i = 0; i <= kSize; ++i)
+	{
+		kernel[kSize + i] = kernel[kSize - i] = normpdf(i, sigma);
+	}
+
+	//get the normalization factor (as the gaussian has been clamped)
+	for (int j = 0; j < mSize; ++j)
+	{
+		Z += kernel[j];
+	}
+
+	//read out the texels
+	for (int k = -kSize; k <= kSize; ++k)
+	{
+		for (int l = -kSize; l <= kSize; ++l)
+		{
+			float4 samp = gBufferColourSpec.Sample(linearMipSampler, (input.uv + float2(k, l)) / float2(screenW, screenH));
+			final_colour += kernel[kSize + l] * kernel[kSize + k] * samp.xyz;
+		}
+	}
+
+	return float4(c, 1.0f);
+	//return float4(final_colour / (Z*Z), 1.0);
 }
