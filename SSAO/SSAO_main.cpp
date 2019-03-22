@@ -46,7 +46,8 @@ public:
 		float g_scale;
 		float g_bias;
 		int g_samples;
-		float g_pad[2];
+		int g_blurKernelSz;
+		float g_pad;
 	};
 
 	enum ELightType
@@ -482,6 +483,7 @@ public:
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
 		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
+		ImGui::SliderInt("Blur Kernel Size", &m_blurKernel, 2, 20, "%.0f");
 
 		m_SSAOCBData.g_sample_rad = m_sample_rad;
 		m_SSAOCBData.g_intensity = m_intensity;
@@ -489,7 +491,8 @@ public:
 		m_SSAOCBData.g_bias = m_bias;
 		m_SSAOCBData.random_size = 64.0f;
 		m_SSAOCBData.g_samples = m_samples_mult;
-
+		m_SSAOCBData.g_blurKernelSz = m_samples_mult;
+		
 		// Push Data to GPU
 		D3D11_MAPPED_SUBRESOURCE sr;
 		if (!FAILED(systems.pD3DContext->Map(m_pSSAOCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr)))
@@ -789,6 +792,7 @@ private:
 	float m_scale;
 	float m_bias;
 	int m_samples_mult = 1;
+	int m_blurKernel = 5;
 
 	//PostFx
 	ID3D11Texture2D*			m_pPostFXTexture = nullptr;

@@ -23,7 +23,8 @@ cbuffer SSAOCB : register(b1)
 	float g_scale;
 	float g_bias;
 	int	  g_samples;
-	float g_pad[2];
+	int   g_blurKernelSz;
+	float g_pad;
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -192,13 +193,19 @@ float normpdf(float x, float sigma)
 
 float4 PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 {
-	float3 c = gBufferColourSpec.Sample(linearMipSampler, input.uv).xyz;
 
 	//declare stuff
 	const int mSize = 11;
 	const int kSize = (mSize - 1) / 2;
 	float kernel[mSize];
 	float3 final_colour = float3(0.0, 0.0, 0.0);
+
+	//stride early
+	//if ((input.uv.x) % g_blurKernelSz != 0)
+	//{
+	//	final_colour += float3(0, 0, 1);
+	//	return float4(final_colour, 1);
+	//}
 
 	//create the 1-D kernel
 	float sigma = 7.0;
@@ -219,11 +226,12 @@ float4 PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	{
 		for (int l = -kSize; l <= kSize; ++l)
 		{
-			float4 samp = gBufferColourSpec.Sample(linearMipSampler, (input.uv + float2(k, l)) / float2(screenW, screenH));
+			float4 samp = gBufferColourSpec.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
+
 			final_colour += kernel[kSize + l] * kernel[kSize + k] * samp.xyz;
 		}
 	}
 
-	return float4(c, 1.0f);
-	//return float4(final_colour / (Z*Z), 1.0);
+	//return float4(final_colour, 1.0f);
+	return float4(final_colour / (Z*Z), 1.0);
 }
