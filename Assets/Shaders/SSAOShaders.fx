@@ -25,6 +25,8 @@ cbuffer SSAOCB : register(b1)
 	int	  g_samples;
 	int   g_blurKernelSz;
 	float g_blurSigma;
+	float g_maxDistance;
+	float g_pad[3];
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -100,18 +102,17 @@ float2 getRandom(float2 uv)
 float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 {
 	float3 sample = getPosition(tcoord + uv);
-	float3 origin = getPosition(tcoord);
 	float3 diff = sample - p;
 	const float3 v = normalize(diff);
 	const float d = length(diff)*g_scale; //scales distance between occluders and occludee.;
 	
 	//range check it so we don't get grey halos around everything
 	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
-
+	
 	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
 	//Check if sample is in range of geometry and is not behind something
-	float rangeCheck = abs(origin.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
-	return val *= (origin.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
+	float rangeCheck = abs(p.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
+	return val *= (p.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
 }
 
 float PS_SSAO_01(VertexOutput i) : SV_TARGET
@@ -149,6 +150,61 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	o = ao;
 
 	return o;
+}
+
+//Spiral SSAO
+float hash12(float2 p)
+{
+	float3 p3 = frac(float3(p.xyx) * float3(0.1031, 0.11369, 0.13787)); //MOD3
+	p3 += dot(p3, p3.yzx + 19.19);
+	return frac((p3.x + p3.y) * p3.z);
+}
+
+float doSpiralAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
+{
+	float3 sample = getPosition(tcoord + uv);
+	float3 diff = sample - p;
+	float l = length(diff);
+	float3 v = diff / l;
+	float d = l * g_scale;
+
+	//float ao = max(0.0, dot(cnorm, v) - BIAS)*(1.0 / (1.0 + d));
+	//ao *= smoothstep(0.7, 0.7 * 0.5, l);
+
+	//range check it so we don't get grey halos around everything
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
+
+	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
+	//Check if sample is in range of geometry and is not behind something
+	float rangeCheck = abs(p.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
+	return val *= (p.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
+}
+
+float PS_SSAO_02(VertexOutput i) : SV_TARGET
+{
+	float3 p = getPosition(i.uv);
+	float3 n = getNormal(i.uv);
+	float2 rand = getRandom(i.uv);
+	float ao = 0.0f;
+	float rad = g_sample_rad / p.z;
+
+	float goldenAngle = 2.4;
+	float inv = 1.0 / float(g_samples*4);
+
+	float rotatePhase = hash12(i.uv*100.0f) * 6.28f;
+	float rStep = inv * rad;
+	float2 spiralUV;
+	float radius = 0.0f;
+
+	for (int i = 0; i < g_samples*4; i++) {
+		spiralUV.x = sin(rotatePhase);
+		spiralUV.y = cos(rotatePhase);
+		radius += rStep;
+		ao += doSpiralAmbientOcclusion(i.uv, spiralUV * radius, p, n);
+		rotatePhase += goldenAngle;
+	}
+	ao *= inv;
+	return ao;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

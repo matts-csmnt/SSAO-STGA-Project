@@ -48,6 +48,8 @@ public:
 		int g_samples;
 		int g_blurKernelSz;
 		float g_blurSigma;
+		float g_maxDistance;
+		float g_pad[3];
 	};
 
 	enum ELightType
@@ -273,6 +275,7 @@ public:
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
 		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
+		//ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
 
 		//Blur
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Blur Shader Variables");
@@ -435,6 +438,7 @@ public:
 		m_SSAOCBData.g_samples = m_samples_mult;
 		m_SSAOCBData.g_blurKernelSz = m_samples_mult;
 		m_SSAOCBData.g_blurSigma = m_blurSigma;
+		//m_SSAOCBData.g_maxDistance = m_maxDistance;
 
 		// Push Data to GPU
 		D3D11_MAPPED_SUBRESOURCE sr;
@@ -881,6 +885,7 @@ private:
 	int m_samples_mult = 1;
 	int m_blurKernel = 5;
 	float m_blurSigma = 7.0f;
+	float m_maxDistance = 0.7;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
