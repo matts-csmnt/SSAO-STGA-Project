@@ -65,6 +65,7 @@ public:
 		v4 m_vColour; // all types
 		v4 m_vAtt; // attenuation factors + spot exponent in w
 		// various spot params... to be added.
+		v4 m_vAmbient = v4(0,0,0,0);
 	};
 
 	// A more general light management structure.
@@ -220,6 +221,7 @@ public:
 			l.m_shaderInfo.m_vColour = v4(1.f, 0.7f, .6f, 0.f) * 0.2f;
 			l.m_shaderInfo.m_vPosition = v4(0, 0, 0, 0);
 			l.m_type = kLightType_Directional;
+			l.m_shaderInfo.m_vAmbient = v4(0.15,0.15,0.2,1);
 
 			m_lights.push_back(l);
 		}
@@ -296,9 +298,10 @@ public:
 		{
 			for (u32 j = 0; j < kLightGridSize; ++j)
 			{
+				float control = (i*j+1)/(j + i+1);
 				m_lights[i* kLightGridSize + j + 1].m_shaderInfo.m_vPosition = v4(
 					i + sin(i * m_perFrameCBData.m_time) - 5.0
-					, cos(i * j * m_perFrameCBData.m_time) + 1
+					, (cos(control * m_perFrameCBData.m_time) + 1) * 10
 					, j + cos(j * m_perFrameCBData.m_time) - 5.0
 					, 1.0f
 				);
@@ -415,6 +418,8 @@ public:
 		// Read the GBuffer textures, reconstruct depth and do AO
 		//=======================================================================================
 
+		systems.pD3DContext->ClearRenderTargetView(m_pSSAORTV, clearValue);
+
 		// Here we are binding the SSAO buffer as render target
 		ID3D11RenderTargetView* views[] = { m_pSSAORTV, 0 };
 		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
@@ -460,7 +465,15 @@ public:
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
 
+		systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV, clearValue);
+
+		// Here we are binding the Blur RTV buffer as render target
+		views[0] = m_pBlurSSAORTV;
+		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+		// Bind our ssao texture as input to the pixel shader
 		systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+
 		{
 			m_GaussBlur.bind(systems.pD3DContext);
 
@@ -483,7 +496,8 @@ public:
 
 		// Bind our GBuffer textures & ssao buffer as inputs to the pixel shader
 		systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
-		systems.pD3DContext->PSSetShaderResources(3, 1, &m_pSSAOSRV);
+		//systems.pD3DContext->PSSetShaderResources(3, 1, &m_pSSAOSRV);
+		systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV);
 
 		// For exploring the GBuffer data we use a shader.
 		// Bind GBuffer Debugging shader.
@@ -512,6 +526,7 @@ public:
 
 			static int maxLights = m_lights.size();
 			ImGui::SliderInt("Lights", &maxLights, 0, m_lights.size());
+
 
 			for (u32 i = 0; i < (u32)maxLights; ++i)
 			{
@@ -716,9 +731,9 @@ private:
 	{
 		HRESULT hr;
 
-		SAFE_RELEASE(m_pPostFXRTV);
-		SAFE_RELEASE(m_pPostFXTexture);
-		SAFE_RELEASE(m_pPostFXSRV);
+		SAFE_RELEASE(m_pBlurSSAORTV);
+		SAFE_RELEASE(m_pBlurSSAOTexture);
+		SAFE_RELEASE(m_pBlurSSAOSRV);
 
 		// Create a colour buffers
 		D3D11_TEXTURE2D_DESC desc;
@@ -734,14 +749,14 @@ private:
 		desc.CPUAccessFlags = 0;
 		desc.MiscFlags = 0;
 
-		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pPostFXTexture);
+		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pBlurSSAOTexture);
 		if (FAILED(hr))
 		{
 			panicF("Failed colour texture for PostFx");
 		}
 
 		// render target views.
-		hr = pD3DDevice->CreateRenderTargetView(m_pPostFXTexture, NULL, &m_pPostFXRTV);
+		hr = pD3DDevice->CreateRenderTargetView(m_pBlurSSAOTexture, NULL, &m_pBlurSSAORTV);
 		if (FAILED(hr))
 		{
 			panicF("Failed colour target view for PostFx");
@@ -753,7 +768,7 @@ private:
 		srvDesc.Texture2D.MostDetailedMip = 0;
 		srvDesc.Texture2D.MipLevels = 1;
 
-		hr = pD3DDevice->CreateShaderResourceView(m_pPostFXTexture, &srvDesc, &m_pPostFXSRV);
+		hr = pD3DDevice->CreateShaderResourceView(m_pBlurSSAOTexture, &srvDesc, &m_pBlurSSAOSRV);
 		if (FAILED(hr))
 		{
 			panicF("Failed to create SRV of Target for PostFx");
@@ -871,10 +886,10 @@ private:
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
 	ID3D11ShaderResourceView*	m_pSSAOSRV = nullptr;
 
-	//PostFx
-	ID3D11Texture2D*			m_pPostFXTexture = nullptr;
-	ID3D11RenderTargetView*		m_pPostFXRTV = nullptr;
-	ID3D11ShaderResourceView*	m_pPostFXSRV = nullptr;
+	//PostFx -- Blurred SSAO Buffer
+	ID3D11Texture2D*			m_pBlurSSAOTexture = nullptr;
+	ID3D11RenderTargetView*		m_pBlurSSAORTV = nullptr;
+	ID3D11ShaderResourceView*	m_pBlurSSAOSRV = nullptr;
 
 	// GBuffer objects
 	ID3D11Texture2D*		m_pGBufferTexture[kMaxGBufferTextures];

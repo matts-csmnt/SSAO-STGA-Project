@@ -66,37 +66,6 @@ VertexOutput VS_Passthrough(VertexInput input)
 	return output;
 }
 
-float4 PS_SSAO(VertexOutput input) : SV_TARGET
-{
-
-	float4 vColourSpec = gBufferColourSpec.Sample(linearMipSampler, input.uv);
-	float4 vNormalPow = gBufferNormalPow.Sample(linearMipSampler, input.uv);
-	float fDepth = gBufferDepth.Sample(linearMipSampler, input.uv).r;
-
-	// decode the gbuffer.
-	float3 materialColour = vColourSpec.rgb;
-	float3 N = vNormalPow.xyz;
-
-	return float4(materialColour, 1.f);
-}
-
-float4 PS_SSAO_DEBUG_NRM(VertexOutput input) : SV_TARGET
-{
-	float2 sUV = float2(input.uv.x / screenW, input.uv.y / screenH);
-
-	float4 vColourSpec = gBufferColourSpec.Sample(linearMipSampler, input.uv);
-	float4 vNormalPow = gBufferNormalPow.Sample(linearMipSampler, input.uv);
-	float fDepth = gBufferDepth.Sample(linearMipSampler, input.uv).r;
-
-	float3 rnd3 = randNormal.Sample(linearMipSampler, input.uv).xyz * 2 - 1;
-
-	// decode the gbuffer.
-	float3 materialColour = vColourSpec.rgb;
-	float3 N = vNormalPow.xyz;
-
-	return float4(N, 1.f);
-}
-
 //---------------------------------------------------------------------------------------------------
 //https://www.gamedev.net/articles/programming/graphics/a-simple-and-practical-approach-to-ssao-r2753
 //---------------------------------------------------------------------------------------------------
@@ -188,7 +157,7 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 
 //https://www.shadertoy.com/view/XdfGDH
 
-Texture2D ssaoBuffer : register(t3);
+Texture2D ssaoBuffer : register(t0);
 
 float normpdf(float x, float sigma)
 {

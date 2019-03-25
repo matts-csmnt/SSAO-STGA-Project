@@ -186,19 +186,17 @@ cbuffer LightInfo : register(b2)
 	float4 vLightColour; // all types
 	float4 vLightAtt; // light attenuation factors spot and point.
 	// various spot params... to be added.
+	float4 vLightAmbient;
 };
 
 float4 PS_SSAODebug(VertexOutput input) : SV_TARGET
 {
-
-	float ssao = ssaoBuffer.Sample(linearMipSampler, input.uv);
-	ssao = 1.0f - ssao;
+	float ssao = 1.0f - ssaoBuffer.Sample(linearMipSampler, input.uv);
 	return float4(ssao, ssao, ssao, 1.f);
 }
 
 float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
 {
-
  	float4 vColourSpec = gBufferColourSpec.Sample(linearMipSampler, input.uv);
  	float4 vNormalPow = gBufferNormalPow.Sample(linearMipSampler, input.uv);
  	//float fDepth = gBufferDepth.Sample(linearMipSampler, input.uv).r;
@@ -207,14 +205,14 @@ float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
  	float3 materialColour = vColourSpec.rgb;
 	float3 N = vNormalPow.xyz;
 
-
 	float kDiffuse = max(dot(vLightDirection.xyz, N),0); 
  	float3 diffuseColour = kDiffuse * materialColour * vLightColour.rgb;
 
 	//sample the ao
 	float ssao = 1.0f - ssaoBuffer.Sample(linearMipSampler, input.uv);
+	float3 ambient = vLightAmbient.xyz * ssao;
 
- 	return float4(ssao * diffuseColour, 1.f);
+ 	return float4(ambient + diffuseColour, 1.f);
 }
 
 struct LightVolumeVertexOutput
@@ -269,8 +267,6 @@ float4 PS_PointLight(LightVolumeVertexOutput input) : SV_TARGET
  	float3 diffuseColour = kDiffuse * materialColour * vLightColour.rgb;
 
  	return float4(diffuseColour.xyz, 1.f);
-
- 	//return float4(1,0,0,1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
