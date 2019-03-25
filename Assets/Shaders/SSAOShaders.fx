@@ -24,7 +24,7 @@ cbuffer SSAOCB : register(b1)
 	float g_bias;
 	int	  g_samples;
 	int   g_blurKernelSz;
-	float g_pad;
+	float g_blurSigma;
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -131,22 +131,23 @@ float2 getRandom(float2 uv)
 float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 {
 	float3 sample = getPosition(tcoord + uv);
+	float3 origin = getPosition(tcoord);
 	float3 diff = sample - p;
 	const float3 v = normalize(diff);
 	const float d = length(diff)*g_scale; //scales distance between occluders and occludee.;
 	
 	//range check it so we don't get grey halos around everything
-	float val =  max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
 
 	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
 	//Check if sample is in range of geometry and is not behind something
-	float rangeCheck = abs(getPosition(tcoord).z - sample.z) < g_sample_rad ? 1.0 : 0.0;
-	return val *= (getPosition(tcoord).z <= sample.z ? 1.0 : 0.0) * rangeCheck;
+	float rangeCheck = abs(origin.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
+	return val *= (origin.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
 }
 
-float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
+float PS_SSAO_01(VertexOutput i) : SV_TARGET
 {
-	float4 o;
+	float o;
 	const float2 vec[4] = { float2(1,0),float2(-1,0), float2(0,1),float2(0,-1) };
 	float3 p = getPosition(i.uv);
 	float3 n = getNormal(i.uv);
@@ -173,9 +174,10 @@ float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
 	//Do stuff here with your occlusion value ao modulate ambient lighting, write it to a buffer for later 
 	//use, etc. 
 
-	float3 outCol = float3(gBufferColourSpec.Sample(linearMipSampler, i.uv).xyz);
+	/*float3 outCol = float3(gBufferColourSpec.Sample(linearMipSampler, i.uv).xyz);
 	outCol -= ao;
-	o = float4(outCol, 1.0f);
+	o = float4(outCol, 1.0f);*/
+	o = ao;
 
 	return o;
 }
@@ -186,29 +188,24 @@ float4 PS_SSAO_01(VertexOutput i) : SV_TARGET
 
 //https://www.shadertoy.com/view/XdfGDH
 
+Texture2D ssaoBuffer : register(t3);
+
 float normpdf(float x, float sigma)
 {
 	return 0.39894*exp(-0.5*x*x / (sigma*sigma)) / sigma;
 }
 
-float4 PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
+float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 {
 
 	//declare stuff
 	const int mSize = 11;
 	const int kSize = (mSize - 1) / 2;
 	float kernel[mSize];
-	float3 final_colour = float3(0.0, 0.0, 0.0);
-
-	//stride early
-	//if ((input.uv.x) % g_blurKernelSz != 0)
-	//{
-	//	final_colour += float3(0, 0, 1);
-	//	return float4(final_colour, 1);
-	//}
+	float final = 0.0f;
 
 	//create the 1-D kernel
-	float sigma = 7.0;
+	float sigma = g_blurSigma; //7.0;
 	float Z = 0.0;
 	for (int i = 0; i <= kSize; ++i)
 	{
@@ -226,12 +223,11 @@ float4 PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	{
 		for (int l = -kSize; l <= kSize; ++l)
 		{
-			float4 samp = gBufferColourSpec.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
+			float samp = ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
 
-			final_colour += kernel[kSize + l] * kernel[kSize + k] * samp.xyz;
+			final += kernel[kSize + l] * kernel[kSize + k] * samp.x;
 		}
 	}
 
-	//return float4(final_colour, 1.0f);
-	return float4(final_colour / (Z*Z), 1.0);
+	return float(final / (Z*Z));
 }

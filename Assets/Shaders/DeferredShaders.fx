@@ -173,7 +173,12 @@ float4 PS_GBufferDebug_Depth(VertexOutput input) : SV_TARGET
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Lights...
 ///////////////////////////////////////////////////////////////////////////////
+
+//SSAO values stored in buffer
+Texture2D ssaoBuffer : register(t3);
+
 cbuffer LightInfo : register(b2)
 {
 	float4 vLightPosition; // w == 0 then directional
@@ -183,15 +188,12 @@ cbuffer LightInfo : register(b2)
 	// various spot params... to be added.
 };
 
-float4 PS_NoLight(VertexOutput input) : SV_TARGET
+float4 PS_SSAODebug(VertexOutput input) : SV_TARGET
 {
 
-	float4 vColourSpec = gBufferColourSpec.Sample(linearMipSampler, input.uv);
-
-	// decode the gbuffer.
-	float3 materialColour = vColourSpec.rgb;
-
-	return float4(materialColour, 1.f);
+	float ssao = ssaoBuffer.Sample(linearMipSampler, input.uv);
+	ssao = 1.0f - ssao;
+	return float4(ssao, ssao, ssao, 1.f);
 }
 
 float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
@@ -209,7 +211,10 @@ float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
 	float kDiffuse = max(dot(vLightDirection.xyz, N),0); 
  	float3 diffuseColour = kDiffuse * materialColour * vLightColour.rgb;
 
- 	return float4(diffuseColour, 1.f);
+	//sample the ao
+	float ssao = 1.0f - ssaoBuffer.Sample(linearMipSampler, input.uv);
+
+ 	return float4(ssao * diffuseColour, 1.f);
 }
 
 struct LightVolumeVertexOutput
