@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "fbx_load.h"
+#include "Samplers.h"
 
 constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 constexpr UINT kSampleMask = 0xffffffff;
@@ -109,7 +110,9 @@ public:
 		create_mesh_from_obj(systems.pD3DDevice, m_lightVolumeSphere, "../Assets/Models/unit_sphere.obj", 1.f);
 
 		// We need a sampler state to define wrapping and mipmap parameters.
-		m_pSamplerState = create_basic_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
+		m_pSamplerState[kLinear] = create_basic_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
+		m_pSamplerState[kAniso] = create_aniso_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
+		m_pSamplerState[kPoint] = create_point_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
 
 		// Setup per-frame data
 		m_perFrameCBData.m_time = 0.0f;
@@ -275,11 +278,18 @@ public:
 
 		//SSAO
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "SSAO Shader Variables");
+		if (ImGui::Button("Next Sampler"))
+		{
+			m_samplerSelect < kMaxSamplers - 1 ? ++m_samplerSelect : m_samplerSelect = 0;
+		}
+		ImGui::TextColored(ImVec4(1, 0, 1, 1), "Sampler: %s", m_samplerNames[m_samplerSelect].c_str());
+
 		if (ImGui::Button("Next Technique"))
 		{
 			m_ssaoSelect < kMaxSSAOTypes - 1 ? ++m_ssaoSelect : m_ssaoSelect = 0;
 		}
 		ImGui::TextColored(ImVec4(0, 1, 1, 1), "Technique: %s", m_ssaoNames[m_ssaoSelect].c_str());
+
 		ImGui::SliderFloat("Sample Radius", &m_sample_rad, 0.0f, 2.0f);
 		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
@@ -385,7 +395,7 @@ public:
 		systems.pD3DContext->PSSetConstantBuffers(0, 2, buffers);
 
 		// Bind a sampler state
-		ID3D11SamplerState* samplers[] = { m_pSamplerState };
+		ID3D11SamplerState* samplers[] = { m_pSamplerState[m_samplerSelect] };
 		systems.pD3DContext->PSSetSamplers(0, 1, samplers);
 
 		// Opaque blend
@@ -890,7 +900,21 @@ private:
 	// Scene related objects
 	Mesh m_meshArray[2];
 	Texture m_textureArray[2];
-	ID3D11SamplerState* m_pSamplerState = nullptr;
+
+	//Samplers
+	enum SamplerType {
+		kLinear = 0,
+		kAniso,
+		kPoint,
+		kMaxSamplers
+	};
+	std::string m_samplerNames[kMaxSamplers] = {
+		"Linear",
+		"Anisotropic",
+		"Point"
+	};
+	ID3D11SamplerState* m_pSamplerState[kMaxSamplers] = { nullptr };
+	u16 m_samplerSelect = 0;
 
 	//Room Resources
 	Mesh m_plane;
