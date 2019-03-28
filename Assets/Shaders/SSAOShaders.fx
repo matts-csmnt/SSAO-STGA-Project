@@ -101,14 +101,28 @@ float2 getRandom(float2 uv)
 
 float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 {
+	//Range checking from Shadertoy Spiral Kernel Demo...
+	float3 sample = getPosition(tcoord + uv);
+	float3 diff = sample - p;
+	float l = length(diff);
+	float3 v = diff / l;
+	float d = l * g_scale;
+
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d));
+	val *= smoothstep(g_maxDistance, g_maxDistance * 0.5, l);
+	return val;
+}
+
+float doAOJCRangeCheck(float2 tcoord, float2 uv, float3 p, float3 cnorm)
+{
 	float3 sample = getPosition(tcoord + uv);
 	float3 diff = sample - p;
 	const float3 v = normalize(diff);
 	const float d = length(diff)*g_scale; //scales distance between occluders and occludee.;
-	
+
 	//range check it so we don't get grey halos around everything
 	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
-	
+
 	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
 	//Check if sample is in range of geometry and is not behind something
 	float rangeCheck = abs(p.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
@@ -152,7 +166,40 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	return o;
 }
 
-//Spiral SSAO
+float PS_SSAO_03(VertexOutput i) : SV_TARGET
+{
+	float o;
+	const float2 vec[4] = { float2(1,0),float2(-1,0), float2(0,1),float2(0,-1) };
+	float3 p = getPosition(i.uv);
+	float3 n = getNormal(i.uv);
+	float2 rand = getRandom(i.uv);
+	float ao = 0.0f;
+	float rad = g_sample_rad / p.z;
+
+	//**SSAO Calculation**// 
+	int iterations = g_samples;
+	for (int j = 0; j < iterations; ++j)
+	{
+		float2 coord1 = reflect(vec[j], rand)*rad;
+		float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
+
+		//Try with different range checking method...
+		ao += doAOJCRangeCheck(i.uv, coord1*0.25, p, n);
+		ao += doAOJCRangeCheck(i.uv, coord2*0.5, p, n);
+		ao += doAOJCRangeCheck(i.uv, coord1*0.75, p, n);
+		ao += doAOJCRangeCheck(i.uv, coord2, p, n);
+	}
+	ao /= (float)iterations*4.0;
+	o = ao;
+
+	return o;
+}
+
+//Spiral SSAO --
+//---------------------------------------------------------------------------------------------------
+//https://www.shadertoy.com/view/Ms33WB -- appears to give a smoother final image...
+//---------------------------------------------------------------------------------------------------
+
 float hash12(float2 p)
 {
 	float3 p3 = frac(float3(p.xyx) * float3(0.1031, 0.11369, 0.13787)); //MOD3
@@ -168,16 +215,9 @@ float doSpiralAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 	float3 v = diff / l;
 	float d = l * g_scale;
 
-	//float ao = max(0.0, dot(cnorm, v) - BIAS)*(1.0 / (1.0 + d));
-	//ao *= smoothstep(0.7, 0.7 * 0.5, l);
-
-	//range check it so we don't get grey halos around everything
-	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
-
-	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
-	//Check if sample is in range of geometry and is not behind something
-	float rangeCheck = abs(p.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
-	return val *= (p.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d));
+	val *= smoothstep(g_maxDistance, g_maxDistance * 0.5, l);
+	return val;
 }
 
 float PS_SSAO_02(VertexOutput i) : SV_TARGET
@@ -196,7 +236,7 @@ float PS_SSAO_02(VertexOutput i) : SV_TARGET
 	float2 spiralUV;
 	float radius = 0.0f;
 
-	for (int i = 0; i < g_samples*4; i++) {
+	for (int j = 0; j < g_samples*4; j++) {
 		spiralUV.x = sin(rotatePhase);
 		spiralUV.y = cos(rotatePhase);
 		radius += rStep;

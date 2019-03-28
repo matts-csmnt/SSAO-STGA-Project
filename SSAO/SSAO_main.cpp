@@ -199,10 +199,19 @@ public:
 		);
 
 		//SSAO---
-		m_SSAOShaders.init(systems.pD3DDevice
+		m_SSAOShaders[kStandardSSAO].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_01")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
+		m_SSAOShaders[kSpiralSSAO].init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_02")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+		m_SSAOShaders[kStandardRCSSAO].init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_03")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+
 		m_GaussBlur.init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
@@ -264,23 +273,34 @@ public:
 		// This function displays some useful debugging values, camera positions etc.
 		DemoFeatures::editorHud(systems.pDebugDrawContext);
 
-		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
-		ImGui::SliderFloat3("Position", (float*)&m_position, -1.f, 1.f);
-		ImGui::SliderFloat("Size", &m_size, 0.1f, 10.f);
-
 		//SSAO
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "SSAO Shader Variables");
+		if (ImGui::Button("Next Technique"))
+		{
+			m_ssaoSelect < kMaxSSAOTypes - 1 ? ++m_ssaoSelect : m_ssaoSelect = 0;
+		}
+		ImGui::TextColored(ImVec4(0, 1, 1, 1), "Technique: %s", m_ssaoNames[m_ssaoSelect].c_str());
 		ImGui::SliderFloat("Sample Radius", &m_sample_rad, 0.0f, 2.0f);
 		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
 		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
-		//ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
+		
+		//Another value to play with for comparison with spiral kernel
+		ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
 
 		//Blur
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Blur Shader Variables");
-		ImGui::SliderInt("Blur Kernel Size", &m_blurKernel, 2, 20, "%.0f");
-		ImGui::SliderFloat("Blur Sigma", &m_blurSigma, 1.0f, 24.0f);
+		ImGui::Checkbox("Blur ON", &m_blurOn);
+		if (m_blurOn)
+		{
+			ImGui::SliderInt("Blur Kernel Size", &m_blurKernel, 2, 20, "%.0f");
+			ImGui::SliderFloat("Blur Sigma", &m_blurSigma, 1.0f, 24.0f);
+		}
+
+		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
+		//ImGui::SliderFloat3("Position", (float*)&m_position, -1.f, 1.f);
+		//ImGui::SliderFloat("Size", &m_size, 0.1f, 10.f);
 
 		// Update Per Frame Data.
 		// calculate view project and inverse so we can project back from depth buffer into world coordinates.
@@ -330,11 +350,10 @@ public:
 
 		//dd::xzSquareGrid(ctx, -50.0f, 50.0f, 0.0f, 1.f, dd::colors::DimGray);
 		dd::axisTriad(ctx, (const float*)& m4x4::Identity, 0.1f, 15.0f);
-		dd::box(ctx, (const float*)&m_position, dd::colors::Blue, m_size, m_size, m_size);
-		if (systems.pCamera->pointInFrustum(m_position))
-		{
-			dd::projectedText(ctx, "A Box", (const float*)&m_position, dd::colors::White, (const float*)&systems.pCamera->vpMatrix, 0, 0, systems.width, systems.height, 0.5f);
-		}
+		//if (systems.pCamera->pointInFrustum(m_position))
+		//{
+		//	dd::projectedText(ctx, "A Box", (const float*)&m_position, dd::colors::White, (const float*)&systems.pCamera->vpMatrix, 0, 0, systems.width, systems.height, 0.5f);
+		//}
 
 		// Push Per Frame Data to GPU
 		D3D11_MAPPED_SUBRESOURCE subresource;
@@ -438,7 +457,9 @@ public:
 		m_SSAOCBData.g_samples = m_samples_mult;
 		m_SSAOCBData.g_blurKernelSz = m_samples_mult;
 		m_SSAOCBData.g_blurSigma = m_blurSigma;
-		//m_SSAOCBData.g_maxDistance = m_maxDistance;
+		
+		//For spiral testing
+		m_SSAOCBData.g_maxDistance = m_maxDistance;
 
 		// Push Data to GPU
 		D3D11_MAPPED_SUBRESOURCE sr;
@@ -458,7 +479,7 @@ public:
 		// Bind a random normal map for help with sampling
 		m_rndnrm.bind(systems.pD3DContext, ShaderStage::kPixel, 3);
 		{
-			m_SSAOShaders.bind(systems.pD3DContext);
+			m_SSAOShaders[m_ssaoSelect].bind(systems.pD3DContext);
 
 			m_fullScreenQuad.bind(systems.pD3DContext);
 			m_fullScreenQuad.draw(systems.pD3DContext);
@@ -468,21 +489,24 @@ public:
 		// Blur Post FX
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
-
-		systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV, clearValue);
-
-		// Here we are binding the Blur RTV buffer as render target
-		views[0] = m_pBlurSSAORTV;
-		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
-
-		// Bind our ssao texture as input to the pixel shader
-		systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
-
+		
+		if (m_blurOn)
 		{
-			m_GaussBlur.bind(systems.pD3DContext);
+			systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV, clearValue);
 
-			m_fullScreenQuad.bind(systems.pD3DContext);
-			m_fullScreenQuad.draw(systems.pD3DContext);
+			// Here we are binding the Blur RTV buffer as render target
+			views[0] = m_pBlurSSAORTV;
+			systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+			// Bind our ssao texture as input to the pixel shader
+			systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+
+			{
+				m_GaussBlur.bind(systems.pD3DContext);
+
+				m_fullScreenQuad.bind(systems.pD3DContext);
+				m_fullScreenQuad.draw(systems.pD3DContext);
+			}
 		}
 
 		//=======================================================================================
@@ -500,8 +524,17 @@ public:
 
 		// Bind our GBuffer textures & ssao buffer as inputs to the pixel shader
 		systems.pD3DContext->PSSetShaderResources(0, 3, m_pGBufferTextureViews);
-		//systems.pD3DContext->PSSetShaderResources(3, 1, &m_pSSAOSRV);
-		systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV);
+
+		if (m_blurOn)
+		{
+			//Set the blur view as resource for next pass
+			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV);
+		}
+		else
+		{
+			//Direct bind the ssao buffer to the final lighting stage
+			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pSSAOSRV);
+		}
 
 		// For exploring the GBuffer data we use a shader.
 		// Bind GBuffer Debugging shader.
@@ -871,8 +904,20 @@ private:
 	Mesh m_lightVolumeSphere;
 
 	//SSAO Shader Resources
+	enum SSAOType {
+		kStandardSSAO = 0,
+		kSpiralSSAO,
+		kStandardRCSSAO,
+		kMaxSSAOTypes
+	};
+	std::string m_ssaoNames[kMaxSSAOTypes] = {
+		"Default Technique",
+		"Spiral Kernel",
+		"Default w/ JC Range Check"
+	};
+	u16 m_ssaoSelect = 0;
 	Texture m_rndnrm;
-	ShaderSet m_SSAOShaders;
+	ShaderSet m_SSAOShaders[kMaxSSAOTypes];
 	ShaderSet m_GaussBlur;
 
 	SSAOCBData m_SSAOCBData;
@@ -886,6 +931,8 @@ private:
 	int m_blurKernel = 5;
 	float m_blurSigma = 7.0f;
 	float m_maxDistance = 0.7;
+
+	bool m_blurOn = true;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
