@@ -139,7 +139,6 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	float ao = 0.0f;
 	float rad = g_sample_rad / p.z;
 
-	//**SSAO Calculation**// 
 	int iterations = g_samples;
 	for (int j = 0; j < iterations; ++j)
 	{
@@ -168,7 +167,6 @@ float PS_SSAO_03(VertexOutput i) : SV_TARGET
 	float ao = 0.0f;
 	float rad = g_sample_rad / p.z;
 
-	//**SSAO Calculation**// 
 	int iterations = g_samples;
 	for (int j = 0; j < iterations; ++j)
 	{
@@ -212,6 +210,8 @@ float doSpiralAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 	return val;
 }
 
+static float GOLDEN_ANGLE = 2.4;
+
 float PS_SSAO_02(VertexOutput i) : SV_TARGET
 {
 	float3 p = getPosition(i.uv);
@@ -220,7 +220,7 @@ float PS_SSAO_02(VertexOutput i) : SV_TARGET
 	float ao = 0.0f;
 	float rad = g_sample_rad / p.z;
 
-	float goldenAngle = 2.4;
+	//float goldenAngle = 2.4;
 	float inv = 1.0 / float(g_samples*4);
 
 	float rotatePhase = hash12(i.uv*100.0f) * 6.28f;
@@ -233,9 +233,82 @@ float PS_SSAO_02(VertexOutput i) : SV_TARGET
 		spiralUV.y = cos(rotatePhase);
 		radius += rStep;
 		ao += doSpiralAmbientOcclusion(i.uv, spiralUV * radius, p, n);
-		rotatePhase += goldenAngle;
+		rotatePhase += GOLDEN_ANGLE;
 	}
 	ao *= inv;
+	return ao;
+}
+
+//---------------------------------------------------------------------------------------------------
+//GPU ZEN 1
+//---------------------------------------------------------------------------------------------------
+
+#define PI				3.1415f
+#define TWO_PI			2.0f * PI
+
+float2 VogelDiskOffset(int sampleIndex, float phi)
+{
+	float r = sqrt(sampleIndex + 0.5f) / sqrt((g_samples * 4));
+	float theta = sampleIndex * GOLDEN_ANGLE + phi;
+
+	float sine, cosine;
+	sincos(theta, sine, cosine);
+
+	return float2(r * cosine, r * sine);
+}
+
+float2 AlchemySpiralOffset(int sampleIndex, float phi)
+{
+	float alpha = float(sampleIndex + 0.5f) / (g_samples * 4);
+	float theta = 7.0f*TWO_PI*alpha + phi;
+
+	float sine, cosine;
+	sincos(theta, sine, cosine);
+
+	return float2(cosine, sine);
+}
+
+float InterleavedGradientNoise(float2 position_screen)
+{
+	float3 magic = float3(0.06711056f, 4.0f*0.00583715f, 52.9829189f);
+	return frac(magic.z * frac(dot(position_screen, magic.xy)));
+}
+
+
+float AlchemyNoise(int2 position_screen)
+{
+	return 30.0f*(position_screen.x^position_screen.y) + 10.0f*(position_screen.x*position_screen.y);
+}
+
+float PS_SSAO_04(VertexOutput i) : SV_TARGET
+{
+	float2 radius_screen = 0.5;/*radius_world / i.vpos.z;
+	radius_screen = min(radius_screen, maxRadius_screen);
+	radius_screen.y *= aspect;*/
+
+	float noise = InterleavedGradientNoise(i.vpos.xy);
+	float alchemyNoise = AlchemyNoise((int2)i.vpos.xy);
+
+	float ao = 0.0f;
+
+	for (int j = 0; j < g_samples*4; j++)
+	{
+		float2 sampleOffset = 0.0f;
+		
+		//sampleOffset = VogelDiskOffset(i, TWO_PI*noise);
+		sampleOffset = AlchemySpiralOffset(j, alchemyNoise);
+
+		float2 sampleTexCoord = i.uv + radius_screen * sampleOffset;
+
+		float3 samplePosition = getPosition(sampleTexCoord);
+		float3 v = samplePosition - i.vpos;
+
+		ao += max(0.0f, dot(v, getNormal(sampleTexCoord)) + 0.002f*i.vpos.z) / (dot(v, v) + 0.001f);
+	}
+
+	ao = saturate(ao / (g_samples*4));
+	//ao = pow(ao, g_intensity);
+
 	return ao;
 }
 

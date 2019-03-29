@@ -218,7 +218,11 @@ public:
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_03")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
-
+		m_SSAOShaders[KGPUZENAlchemy].init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_04")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+		
 		m_GaussBlur.init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
@@ -316,6 +320,11 @@ public:
 			m_mipLevel = 0;
 		}
 
+		if (ImGui::SliderInt("SSAO Target DownSize *(n)", &m_ssaoTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
+		{
+			create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
+		}
+
 		//Blur
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Blur Shader Variables");
 		ImGui::Checkbox("Blur ON", &m_blurOn);
@@ -327,7 +336,6 @@ public:
 		if(ImGui::SliderInt("Blur Target DownSize *(n)", &m_blurTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
 		{
 			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
-			//create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 		}
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
@@ -964,12 +972,14 @@ private:
 		kStandardSSAO = 0,
 		kSpiralSSAO,
 		kStandardRCSSAO,
+		KGPUZENAlchemy,
 		kMaxSSAOTypes
 	};
 	std::string m_ssaoNames[kMaxSSAOTypes] = {
 		"Default Technique",
 		"Spiral Kernel",
-		"Default w/ JC Range Check"
+		"Default w/ JC Range Check",
+		"GPU ZEN: Alchemy Spiral"
 	};
 	u16 m_ssaoSelect = 0;
 	Texture m_rndnrm;
