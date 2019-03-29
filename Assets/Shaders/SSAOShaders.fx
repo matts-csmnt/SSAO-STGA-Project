@@ -288,3 +288,70 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 
 	return float(final / (Z*Z));
 }
+
+float PS_BLUR_GAUSS_FAST_X(VertexOutput input) : SV_TARGET
+{
+	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
+	float sum = 0.0f;
+
+	//the amount to blur, i.e. how far off center to sample from 
+	//1.0 -> blur by one pixel
+	//2.0 -> blur by two pixels, etc.
+	float blur = g_blurKernelSz / screenH;
+
+	//the direction of our blur
+	//(1.0, 0.0) -> x-axis blur
+	float hstep = 1.0;
+	float vstep = 0.0;
+
+	//apply blurring, using a 9-tap filter with predefined gaussian weights
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 4.0*blur*hstep, input.uv.y - 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 3.0*blur*hstep, input.uv.y - 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 2.0*blur*hstep, input.uv.y - 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 1.0*blur*hstep, input.uv.y - 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
+
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x, input.uv.y), g_mipLevel) * 0.2270270270;
+
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 1.0*blur*hstep, input.uv.y + 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 2.0*blur*hstep, input.uv.y + 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 3.0*blur*hstep, input.uv.y + 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 4.0*blur*hstep, input.uv.y + 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
+
+	return sum;
+}
+
+float PS_BLUR_GAUSS_FAST_Y(VertexOutput input) : SV_TARGET
+{
+	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
+	float sum = 0.0f;
+
+	//the amount to blur, i.e. how far off center to sample from 
+	//1.0 -> blur by one pixel
+	//2.0 -> blur by two pixels, etc.
+	float blur = g_blurKernelSz / screenH;
+
+	//the direction of our blur
+	//(0.0, 1.0) -> y-axis blur
+	float hstep = 0.0;
+	float vstep = 1.0;
+
+	//apply blurring, using a 9-tap filter with predefined gaussian weights
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 4.0*blur*hstep, input.uv.y - 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 3.0*blur*hstep, input.uv.y - 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 2.0*blur*hstep, input.uv.y - 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 1.0*blur*hstep, input.uv.y - 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
+
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x, input.uv.y), g_mipLevel) * 0.2270270270;
+
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 1.0*blur*hstep, input.uv.y + 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 2.0*blur*hstep, input.uv.y + 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 3.0*blur*hstep, input.uv.y + 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
+	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 4.0*blur*hstep, input.uv.y + 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
+
+	return sum;
+}
+
+//float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
+//{
+//
+//}

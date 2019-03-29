@@ -14,6 +14,7 @@ constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
 
 constexpr u8 MAX_MIP_LEVELS = 4;
+constexpr u8 MAX_TARGET_DOWNSIZE = 4;
 
 //================================================================================
 // SSAO APPLICATION
@@ -92,9 +93,9 @@ public:
 
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
 
-		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
+		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		
-		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
+		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
 		// create fullscreen quad for post-fx / lighting passes. (-1, 1) in XY
 		create_mesh_quad_xy(systems.pD3DDevice, m_fullScreenQuad, 1.0f);
@@ -322,6 +323,11 @@ public:
 		{
 			ImGui::SliderInt("Blur Kernel Size", &m_blurKernel, 2, 20, "%.0f");
 			ImGui::SliderFloat("Blur Sigma", &m_blurSigma, 1.0f, 24.0f);
+		}
+		if(ImGui::SliderInt("Blur Target DownSize *(n)", &m_blurTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
+		{
+			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+			//create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 		}
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
@@ -663,8 +669,8 @@ public:
 	void on_resize(SystemsInterface& systems) override
 	{
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
-		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
-		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
+		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 	}
 
 private:
@@ -990,6 +996,9 @@ private:
 	//Generate and use Mips
 	bool m_GenerateMips = false;
 	int m_mipLevel = 0;
+
+	int m_blurTargetDownSize = 1;
+	int m_ssaoTargetDownSize = 1;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
