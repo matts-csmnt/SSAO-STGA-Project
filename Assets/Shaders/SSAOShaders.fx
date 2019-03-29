@@ -26,7 +26,8 @@ cbuffer SSAOCB : register(b1)
 	int   g_blurKernelSz;
 	float g_blurSigma;
 	float g_maxDistance;
-	float g_pad[3];
+	int g_mipLevel;
+	float g_pad[2];
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -288,8 +289,8 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	{
 		for (int l = -kSize; l <= kSize; ++l)
 		{
-			float samp = ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
-
+			float samp = //ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
+				ssaoBuffer.SampleLevel(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)), g_mipLevel);
 			final += kernel[kSize + l] * kernel[kSize + k] * samp.x;
 		}
 	}

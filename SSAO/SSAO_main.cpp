@@ -13,6 +13,8 @@ constexpr UINT kSampleMask = 0xffffffff;
 constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
 
+constexpr u8 MAX_MIP_LEVELS = 4;
+
 //================================================================================
 // SSAO APPLICATION
 //================================================================================
@@ -50,7 +52,8 @@ public:
 		int g_blurKernelSz;
 		float g_blurSigma;
 		float g_maxDistance;
-		float g_pad[3];
+		int g_mipLevel;
+		float g_pad[2];
 	};
 
 	enum ELightType
@@ -299,6 +302,19 @@ public:
 		//Another value to play with for comparison with spiral kernel
 		ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
 
+		ImGui::TextColored(ImVec4(1, 1, 0, 1), "PostFx Pipeline");
+		ImGui::Checkbox("Generate Mips for SSAO Tex", &m_GenerateMips);
+		if (m_GenerateMips)
+		{
+			//Select a mip
+			ImGui::SliderInt("Sampled Mip Level", &m_mipLevel, 0, MAX_MIP_LEVELS - 1);
+		}
+		else
+		{
+			//Force regular Mip
+			m_mipLevel = 0;
+		}
+
 		//Blur
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Blur Shader Variables");
 		ImGui::Checkbox("Blur ON", &m_blurOn);
@@ -467,7 +483,8 @@ public:
 		m_SSAOCBData.g_samples = m_samples_mult;
 		m_SSAOCBData.g_blurKernelSz = m_samples_mult;
 		m_SSAOCBData.g_blurSigma = m_blurSigma;
-		
+		m_SSAOCBData.g_mipLevel = m_mipLevel;
+
 		//For spiral testing
 		m_SSAOCBData.g_maxDistance = m_maxDistance;
 
@@ -500,6 +517,15 @@ public:
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
 		
+		//Generate and force mips for up/downsampling
+		if (m_GenerateMips)
+		{
+			//ID3D11Resource* rs = nullptr;
+			systems.pD3DContext->GenerateMips(m_pSSAOSRV);
+			//m_pSSAOSRV->GetResource(&rs);
+			//systems.pD3DContext->SetResourceMinLOD(rs, m_mipLevel);
+		}
+
 		if (m_blurOn)
 		{
 			systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV, clearValue);
@@ -834,7 +860,7 @@ private:
 		D3D11_TEXTURE2D_DESC desc;
 		desc.Width = width;
 		desc.Height = height;
-		desc.MipLevels = 4;
+		desc.MipLevels = MAX_MIP_LEVELS;
 		desc.ArraySize = 1;
 		desc.Format = DXGI_FORMAT_R16_FLOAT; // 1 component f16 target
 		desc.SampleDesc.Count = 1;
@@ -842,7 +868,7 @@ private:
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 		desc.CPUAccessFlags = 0;
-		desc.MiscFlags = 0;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;	//Allows mip generation with context->GenerateMips()
 
 		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pSSAOTexture);
 		if (FAILED(hr))
@@ -861,7 +887,7 @@ private:
 		srvDesc.Format = desc.Format;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Texture2D.MostDetailedMip = 0;
-		srvDesc.Texture2D.MipLevels = 4;
+		srvDesc.Texture2D.MipLevels = MAX_MIP_LEVELS;
 
 		hr = pD3DDevice->CreateShaderResourceView(m_pSSAOTexture, &srvDesc, &m_pSSAOSRV);
 		if (FAILED(hr))
@@ -946,17 +972,24 @@ private:
 
 	SSAOCBData m_SSAOCBData;
 	ID3D11Buffer* m_pSSAOCB = nullptr;
+	
+	//SSAO Vars
 	float m_random_size;
 	float m_sample_rad;
 	float m_intensity;
 	float m_scale;
 	float m_bias;
 	int m_samples_mult = 1;
-	int m_blurKernel = 5;
-	float m_blurSigma = 7.0f;
 	float m_maxDistance = 0.7;
 
+	//Blur vars
+	int m_blurKernel = 5;
+	float m_blurSigma = 7.0f;
 	bool m_blurOn = true;
+
+	//Generate and use Mips
+	bool m_GenerateMips = false;
+	int m_mipLevel = 0;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
