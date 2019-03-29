@@ -85,7 +85,6 @@ float3 getPosition(float2 uv)
 	float4 viewPos = mul(clipPos, matInverseProjection);
 	viewPos /= viewPos.w;
 	float4 worldPos = mul(viewPos, matInverseView);
-	//worldPos /= worldPos.w;
 
 	return worldPos.xyz;
 }
@@ -154,14 +153,6 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	}
 
 	ao /= (float)iterations*4.0;
-
-	//**END**// 
-	//Do stuff here with your occlusion value ao modulate ambient lighting, write it to a buffer for later 
-	//use, etc. 
-
-	/*float3 outCol = float3(gBufferColourSpec.Sample(linearMipSampler, i.uv).xyz);
-	outCol -= ao;
-	o = float4(outCol, 1.0f);*/
 	o = ao;
 
 	return o;
@@ -263,8 +254,8 @@ float normpdf(float x, float sigma)
 
 float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 {
-
-	//declare stuff
+	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
+	//declare stuff - 5 element filter xy
 	const int mSize = 11;
 	const int kSize = (mSize - 1) / 2;
 	float kernel[mSize];
