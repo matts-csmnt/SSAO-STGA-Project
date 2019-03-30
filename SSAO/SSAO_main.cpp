@@ -557,12 +557,26 @@ public:
 		ssaoBuffers[2] = { m_pBlurCBData };
 		systems.pD3DContext->PSSetConstantBuffers(0, 3, ssaoBuffers);
 
+		//use this to figure out which blur to use after ping-ponging
+		int useBlurSRV = 1;
+
 		if (m_blurOn)
 		{
 			switch (m_blurSelect)
 			{
+				int iterations;
 			case BlurType::kKawase:
-				for (int i(0); i < 5; ++i)
+				iterations = 5;
+				goto startBlur;
+			case BlurType::kKawaseMedium:
+				iterations = 4;
+				goto startBlur;
+			case BlurType::kKawaseSmall:
+				iterations = 3;
+				goto startBlur;
+			startBlur:
+
+				for (int i(0); i < iterations; ++i)
 				{
 					m_BlurCBData.g_kawaseIteration = i;
 
@@ -579,19 +593,22 @@ public:
 
 					//select Target
 					(i % 2 == 0) ?
-					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue) :
-					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
+					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue) :
+					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
 
 					// Here we are binding the Blur RTV buffer as render target
-					views[0] = (i % 2 == 0) ? m_pBlurSSAORTV[0] : m_pBlurSSAORTV[1];
+					views[0] = (i % 2 == 0) ? m_pBlurSSAORTV[1] : m_pBlurSSAORTV[0];
 					systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
 
 					// Bind our ssao texture as input to the pixel shader
 					if (i != 0)
 					{
 						(i % 2 == 0) ?
-							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[1]) :
-							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[0]);
+							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[0]) :
+							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[1]);
+						(i % 2 == 0) ?
+							useBlurSRV = 1 :
+							useBlurSRV = 0;
 					}
 					else
 					{
@@ -687,7 +704,7 @@ public:
 		if (m_blurOn)
 		{
 			//Set the blur view as resource for next pass
-			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV[1]);
+			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV[useBlurSRV]);
 		}
 		else
 		{
@@ -1130,12 +1147,16 @@ private:
 		kSlowGauss = 0,
 		kFastGauss,
 		kKawase,
+		kKawaseSmall,
+		kKawaseMedium,
 		kMaxBlurs
 	};
 	std::string m_blurNames[kMaxBlurs] = {
 		"Slow Gaussian: 25 Sample",
 		"Fast Gaussian: 7 Tap XY",
-		"Kawase: 0, 1, 2, 2, 3",
+		"Kawase LRG: 0, 1, 2, 2, 3",
+		"Kawase SML: 0, 1, 1",
+		"Kawase MED: 0, 1, 1, 2"
 	};
 	u16 m_blurSelect = 0;
 
@@ -1144,12 +1165,14 @@ private:
 	
 	//SSAO Vars
 	float m_random_size;
-	float m_sample_rad;
-	float m_intensity;
-	float m_scale;
-	float m_bias;
-	int m_samples_mult = 1;
-	float m_maxDistance = 0.7;
+
+	//Some Defaults
+	float m_sample_rad = 0.1;
+	float m_intensity = 2.0;
+	float m_scale = 0.121;
+	float m_bias = 0.01;
+	int m_samples_mult = 2;
+	float m_maxDistance = 2.0;
 
 	//Blur vars
 	int m_blurKernel = 5;

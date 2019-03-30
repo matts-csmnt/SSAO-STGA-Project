@@ -416,38 +416,70 @@ float PS_BLUR_GAUSS_Y(VertexOutput input) : SV_TARGET
 // From his GDC2003 Presentation: Frame Buffer Postprocessing Effects in  DOUBLE-S.T.E.A.L (Wreckless)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static int kawaseKernel[5] = { 0, 1, 2, 2, 3 };
+static int medKawaseKernel[4] = { 0, 1, 1, 2 };
+static int smolKawaseKernel[3] = { 0, 1, 1 };
+
+float DoKawase(float2 uv, float2 dUV)
+{
+	float cOut;
+	float2 texCoordSample;
+
+	// Sample top left pixel
+	texCoordSample.x = uv.x - dUV.x;
+	texCoordSample.y = uv.y + dUV.y;
+	cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample top right pixel
+	texCoordSample.x = uv.x + dUV.x;
+	texCoordSample.y = uv.y + dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample bottom right pixel
+	texCoordSample.x = uv.x + dUV.x;
+	texCoordSample.y = uv.y - dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample bottom left pixel
+	texCoordSample.x = uv.x - dUV.x;
+	texCoordSample.y = uv.y - dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Average 
+	return cOut *= 0.25f;
+}
 
 float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
 {
 	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
 	float2 RTPixelSz = float2(1.f / RTSize.x, 1.f / RTSize.y);
 
-	float2 texCoordSample;
+	//float2 texCoordSample;
 	float2 halfPixelSize = RTPixelSz / 2.0f;
 	float2 dUV = (RTPixelSz * float2(kawaseKernel[g_kawaseIteration], kawaseKernel[g_kawaseIteration])) + halfPixelSize.xy;
 
-	float cOut;
+	float cOut = DoKawase(input.uv, dUV);
 
-	// Sample top left pixel
-	texCoordSample.x = input.uv.x - dUV.x;
-	texCoordSample.y = input.uv.y + dUV.y;
-	cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+	//// Sample top left pixel
+	//texCoordSample.x = input.uv.x - dUV.x;
+	//texCoordSample.y = input.uv.y + dUV.y;
+	//cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
 
-	// Sample top right pixel
-	texCoordSample.x = input.uv.x + dUV.x;
-	texCoordSample.y = input.uv.y + dUV.y;
-	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+	//// Sample top right pixel
+	//texCoordSample.x = input.uv.x + dUV.x;
+	//texCoordSample.y = input.uv.y + dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
 
-	// Sample bottom right pixel
-	texCoordSample.x = input.uv.x + dUV.x;
-	texCoordSample.y = input.uv.y - dUV.y;
-	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+	//// Sample bottom right pixel
+	//texCoordSample.x = input.uv.x + dUV.x;
+	//texCoordSample.y = input.uv.y - dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
 
-	// Sample bottom left pixel
-	texCoordSample.x = input.uv.x - dUV.x;
-	texCoordSample.y = input.uv.y - dUV.y;
-	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+	//// Sample bottom left pixel
+	//texCoordSample.x = input.uv.x - dUV.x;
+	//texCoordSample.y = input.uv.y - dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
 
+	//scale test
 	//texCoordSample.x = input.vpos/RTSize.x - dUV.x;
 	//texCoordSample.y = input.vpos/RTSize.y + dUV.y;
 	//cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
@@ -468,7 +500,33 @@ float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
 	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
 
 	// Average 
-	cOut *= 0.25f;
+	//cOut *= 0.25f;
+
+	return cOut;
+}
+
+float PS_BLUR_KAWASE_MED(VertexOutput input) : SV_TARGET
+{
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x, 1.f / RTSize.y);
+
+	float2 halfPixelSize = RTPixelSz / 2.0f;
+	float2 dUV = (RTPixelSz * float2(medKawaseKernel[g_kawaseIteration], medKawaseKernel[g_kawaseIteration])) + halfPixelSize.xy;
+
+	float cOut = DoKawase(input.uv, dUV);
+
+	return cOut;
+}
+
+float PS_BLUR_KAWASE_SML(VertexOutput input) : SV_TARGET
+{
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x, 1.f / RTSize.y);
+
+	float2 halfPixelSize = RTPixelSz / 2.0f;
+	float2 dUV = (RTPixelSz * float2(smolKawaseKernel[g_kawaseIteration], smolKawaseKernel[g_kawaseIteration])) + halfPixelSize.xy;
+
+	float cOut = DoKawase(input.uv, dUV);
 
 	return cOut;
 }
