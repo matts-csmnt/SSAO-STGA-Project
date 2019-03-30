@@ -13,7 +13,6 @@ constexpr UINT kSampleMask = 0xffffffff;
 constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
 
-constexpr u8 MAX_MIP_LEVELS = 4;
 constexpr u8 MAX_TARGET_DOWNSIZE = 4;
 
 //================================================================================
@@ -50,11 +49,16 @@ public:
 		float g_scale;
 		float g_bias;
 		int g_samples;
-		int g_blurKernelSz;
-		float g_blurSigma;
 		float g_maxDistance;
-		int g_mipLevel;
-		float g_pad[2];
+		float g_pad[1];
+	};
+
+	struct BlurCBData
+	{
+		int   g_blurKernelSz;
+		float g_blurSigma;
+		int g_downsampleBlurFac;
+		int g_kawaseIteration;
 	};
 
 	enum ELightType
@@ -97,6 +101,8 @@ public:
 		
 		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
+		create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+
 		// create fullscreen quad for post-fx / lighting passes. (-1, 1) in XY
 		create_mesh_quad_xy(systems.pD3DDevice, m_fullScreenQuad, 1.0f);
 
@@ -108,6 +114,9 @@ public:
 
 		// Create Per Light Constant Buffer.
 		m_pLightInfoCB = create_constant_buffer<LightInfo>(systems.pD3DDevice);
+
+		//create blur CB
+		m_pBlurCBData = create_constant_buffer<BlurCBData>(systems.pD3DDevice);
 
 		// Initialize a mesh from an .OBJ file
 		create_mesh_from_obj(systems.pD3DDevice, m_plane, "../Assets/Models/plane.obj", 2.f);
@@ -227,6 +236,19 @@ public:
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
+		m_GaussX.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS_X")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		); 
+		m_GaussY.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS_Y")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+		m_kawase.init(systems.pD3DDevice
+			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_KAWASE")
+			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
+		);
+
 		m_GBufferDebugShaders[kSSAODebug].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_SSAODebug")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
@@ -308,21 +330,14 @@ public:
 		ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "PostFx Pipeline");
-		ImGui::Checkbox("Generate Mips for SSAO Tex", &m_GenerateMips);
-		if (m_GenerateMips)
-		{
-			//Select a mip
-			ImGui::SliderInt("Sampled Mip Level", &m_mipLevel, 0, MAX_MIP_LEVELS - 1);
-		}
-		else
-		{
-			//Force regular Mip
-			m_mipLevel = 0;
-		}
-
-		if (ImGui::SliderInt("SSAO Target DownSize *(n)", &m_ssaoTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
+		if (ImGui::SliderInt("SSAO Target DownSize ^(n)", &m_ssaoTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
 		{
 			create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
+		}
+		if (ImGui::SliderInt("Blur Target DownSize ^(n)", &m_blurTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
+		{
+			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+			create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		}
 
 		//Blur
@@ -330,12 +345,11 @@ public:
 		ImGui::Checkbox("Blur ON", &m_blurOn);
 		if (m_blurOn)
 		{
-			ImGui::SliderInt("Blur Kernel Size", &m_blurKernel, 2, 20, "%.0f");
-			ImGui::SliderFloat("Blur Sigma", &m_blurSigma, 1.0f, 24.0f);
-		}
-		if(ImGui::SliderInt("Blur Target DownSize *(n)", &m_blurTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
-		{
-			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+			if (ImGui::Button("Next Blur"))
+			{
+				m_blurSelect < kMaxBlurs - 1 ? ++m_blurSelect : m_blurSelect = 0;
+			}
+			ImGui::TextColored(ImVec4(1, 0, 1, 1), "Blur: %s", m_blurNames[m_blurSelect].c_str());
 		}
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
@@ -495,11 +509,6 @@ public:
 		m_SSAOCBData.g_bias = m_bias;
 		m_SSAOCBData.random_size = 64.0f;
 		m_SSAOCBData.g_samples = m_samples_mult;
-		m_SSAOCBData.g_blurKernelSz = m_samples_mult;
-		m_SSAOCBData.g_blurSigma = m_blurSigma;
-		m_SSAOCBData.g_mipLevel = m_mipLevel;
-
-		//For spiral testing
 		m_SSAOCBData.g_maxDistance = m_maxDistance;
 
 		// Push Data to GPU
@@ -511,7 +520,7 @@ public:
 		}
 
 		// Bind Constant Buffers, to both PS and VS stages
-		ID3D11Buffer* ssaoBuffers[] = { m_pPerFrameCB, m_pSSAOCB };
+		ID3D11Buffer* ssaoBuffers[] = { m_pPerFrameCB, m_pSSAOCB, NULL };
 		systems.pD3DContext->PSSetConstantBuffers(0, 2, ssaoBuffers);
 
 		// Bind our GBuffer textures as inputs to the pixel shader
@@ -530,32 +539,129 @@ public:
 		// Blur Post FX
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
-		
-		//Generate and force mips for up/downsampling
-		if (m_GenerateMips)
+
+		m_BlurCBData.g_blurKernelSz = m_samples_mult;
+		m_BlurCBData.g_blurSigma = m_blurSigma;
+		m_BlurCBData.g_downsampleBlurFac = m_blurTargetDownSize;
+		m_BlurCBData.g_kawaseIteration = 0;
+
+		// Push Data to GPU
+		D3D11_MAPPED_SUBRESOURCE sr_blur;
+		if (!FAILED(systems.pD3DContext->Map(m_pBlurCBData, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr_blur)))
 		{
-			//ID3D11Resource* rs = nullptr;
-			systems.pD3DContext->GenerateMips(m_pSSAOSRV);
-			//m_pSSAOSRV->GetResource(&rs);
-			//systems.pD3DContext->SetResourceMinLOD(rs, m_mipLevel);
+			memcpy(sr_blur.pData, &m_BlurCBData, sizeof(BlurCBData));
+			systems.pD3DContext->Unmap(m_pBlurCBData, 0);
 		}
+
+		// Bind Constant Buffers, to both PS and VS stages
+		ssaoBuffers[2] = { m_pBlurCBData };
+		systems.pD3DContext->PSSetConstantBuffers(0, 3, ssaoBuffers);
 
 		if (m_blurOn)
 		{
-			systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV, clearValue);
-
-			// Here we are binding the Blur RTV buffer as render target
-			views[0] = m_pBlurSSAORTV;
-			systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
-
-			// Bind our ssao texture as input to the pixel shader
-			systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
-
+			switch (m_blurSelect)
 			{
-				m_GaussBlur.bind(systems.pD3DContext);
+			case BlurType::kKawase:
+				for (int i(0); i < 5; ++i)
+				{
+					m_BlurCBData.g_kawaseIteration = i;
 
-				m_fullScreenQuad.bind(systems.pD3DContext);
-				m_fullScreenQuad.draw(systems.pD3DContext);
+					// Push Data to GPU
+					if (!FAILED(systems.pD3DContext->Map(m_pBlurCBData, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr_blur)))
+					{
+						memcpy(sr_blur.pData, &m_BlurCBData, sizeof(BlurCBData));
+						systems.pD3DContext->Unmap(m_pBlurCBData, 0);
+					}
+
+					// Bind Constant Buffers, to both PS and VS stages
+					ssaoBuffers[2] = { m_pBlurCBData };
+					systems.pD3DContext->PSSetConstantBuffers(0, 3, ssaoBuffers);
+
+					//select Target
+					(i % 2 == 0) ?
+					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue) :
+					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
+
+					// Here we are binding the Blur RTV buffer as render target
+					views[0] = (i % 2 == 0) ? m_pBlurSSAORTV[0] : m_pBlurSSAORTV[1];
+					systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+					// Bind our ssao texture as input to the pixel shader
+					if (i != 0)
+					{
+						(i % 2 == 0) ?
+							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[1]) :
+							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[0]);
+					}
+					else
+					{
+						systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+					}
+
+					{
+						m_kawase.bind(systems.pD3DContext);
+
+						m_fullScreenQuad.bind(systems.pD3DContext);
+						m_fullScreenQuad.draw(systems.pD3DContext);
+					}
+				}
+				break;
+
+			case BlurType::kSlowGauss:
+				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
+
+				// Here we are binding the Blur RTV buffer as render target
+				views[0] = m_pBlurSSAORTV[1];
+				systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+				// Bind our ssao texture as input to the pixel shader
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+
+				{
+					m_GaussBlur.bind(systems.pD3DContext);
+
+					m_fullScreenQuad.bind(systems.pD3DContext);
+					m_fullScreenQuad.draw(systems.pD3DContext);
+				}
+				break;
+
+			case BlurType::kFastGauss:
+			default:
+				//X
+				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
+
+				// Here we are binding the Blur RTV buffer as render target
+				views[0] = m_pBlurSSAORTV[0];
+				systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+				// Bind our ssao texture as input to the pixel shader
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+
+				{
+					m_GaussX.bind(systems.pD3DContext);
+
+					m_fullScreenQuad.bind(systems.pD3DContext);
+					m_fullScreenQuad.draw(systems.pD3DContext);
+				}
+
+				//Y
+				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
+
+				// Here we are binding the Blur RTV buffer as render target
+				views[0] = m_pBlurSSAORTV[1];
+				systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+				// Bind our ssao texture as input to the pixel shader
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[0]);
+
+				{
+					m_GaussY.bind(systems.pD3DContext);
+
+					m_fullScreenQuad.bind(systems.pD3DContext);
+					m_fullScreenQuad.draw(systems.pD3DContext);
+				}
+
+				break;
 			}
 		}
 
@@ -564,6 +670,9 @@ public:
 		// Read the GBuffer textures, and "draw" light volumes for each of our lights.
 		// We use additive blending on the result.
 		//=======================================================================================
+
+		//Back to fullscreen pass viewport
+		//systems.pD3DContext->RSSetViewports(1, &m_fsViewport);
 
 		systems.pD3DContext->ClearRenderTargetView(systems.pSwapRenderTarget, clearValue);
 
@@ -578,7 +687,7 @@ public:
 		if (m_blurOn)
 		{
 			//Set the blur view as resource for next pass
-			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV);
+			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pBlurSSAOSRV[1]);
 		}
 		else
 		{
@@ -679,6 +788,7 @@ public:
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
 		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
+		create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 	}
 
 private:
@@ -812,53 +922,75 @@ private:
 				panicF("Failed to create SRV of Depth for GBuffer");
 			}
 		}
+
+		//Create the full screen viewport
+		m_fsViewport.Width = width;
+		m_fsViewport.Height = height;
+		m_fsViewport.TopLeftX = D3D11_VIEWPORT_BOUNDS_MIN;
+		m_fsViewport.TopLeftY = D3D11_VIEWPORT_BOUNDS_MAX;
+		m_fsViewport.MinDepth = 0;
+		m_fsViewport.MaxDepth = 1;
+	}
+
+	void create_downsample_viewport(float width, float height)
+	{
+		//Create the downsample screen viewport
+		m_dsViewport.Width = width;
+		m_dsViewport.Height = height;
+		m_dsViewport.TopLeftX = D3D11_VIEWPORT_BOUNDS_MIN;
+		m_dsViewport.TopLeftY = D3D11_VIEWPORT_BOUNDS_MAX;
+		m_dsViewport.MinDepth = 0;
+		m_dsViewport.MaxDepth = 1;
 	}
 
 	void create_postfx_resources(ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext, u32 width, u32 height)
 	{
 		HRESULT hr;
 
-		SAFE_RELEASE(m_pBlurSSAORTV);
-		SAFE_RELEASE(m_pBlurSSAOTexture);
-		SAFE_RELEASE(m_pBlurSSAOSRV);
-
-		// Create a colour buffers
-		D3D11_TEXTURE2D_DESC desc;
-		desc.Width = width;
-		desc.Height = height;
-		desc.MipLevels = 1;
-		desc.ArraySize = 1;
-		desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; // 4 component f16 targets
-		desc.SampleDesc.Count = 1;
-		desc.SampleDesc.Quality = 0;
-		desc.Usage = D3D11_USAGE_DEFAULT;
-		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-		desc.CPUAccessFlags = 0;
-		desc.MiscFlags = 0;
-
-		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pBlurSSAOTexture);
-		if (FAILED(hr))
+		for (int i(0); i < 2; ++i)
 		{
-			panicF("Failed colour texture for PostFx");
-		}
+			SAFE_RELEASE(m_pBlurSSAORTV[i]);
+			SAFE_RELEASE(m_pBlurSSAOTextures[i]);
+			SAFE_RELEASE(m_pBlurSSAOSRV[i]);
 
-		// render target views.
-		hr = pD3DDevice->CreateRenderTargetView(m_pBlurSSAOTexture, NULL, &m_pBlurSSAORTV);
-		if (FAILED(hr))
-		{
-			panicF("Failed colour target view for PostFx");
-		}
+			// Create a colour buffers
+			D3D11_TEXTURE2D_DESC desc;
+			desc.Width = width;
+			desc.Height = height;
+			desc.MipLevels = 1;
+			desc.ArraySize = 1;
+			desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; // 4 component f16 targets
+			desc.SampleDesc.Count = 1;
+			desc.SampleDesc.Quality = 0;
+			desc.Usage = D3D11_USAGE_DEFAULT;
+			desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+			desc.CPUAccessFlags = 0;
+			desc.MiscFlags = 0;
 
-		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-		srvDesc.Format = desc.Format;
-		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		srvDesc.Texture2D.MostDetailedMip = 0;
-		srvDesc.Texture2D.MipLevels = 1;
+			hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pBlurSSAOTextures[i]);
+			if (FAILED(hr))
+			{
+				panicF("Failed colour texture for PostFx");
+			}
 
-		hr = pD3DDevice->CreateShaderResourceView(m_pBlurSSAOTexture, &srvDesc, &m_pBlurSSAOSRV);
-		if (FAILED(hr))
-		{
-			panicF("Failed to create SRV of Target for PostFx");
+			// render target views.
+			hr = pD3DDevice->CreateRenderTargetView(m_pBlurSSAOTextures[i], NULL, &m_pBlurSSAORTV[i]);
+			if (FAILED(hr))
+			{
+				panicF("Failed colour target view for PostFx");
+			}
+
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+			srvDesc.Format = desc.Format;
+			srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+			srvDesc.Texture2D.MipLevels = 1;
+
+			hr = pD3DDevice->CreateShaderResourceView(m_pBlurSSAOTextures[i], &srvDesc, &m_pBlurSSAOSRV[i]);
+			if (FAILED(hr))
+			{
+				panicF("Failed to create SRV of Target for PostFx");
+			}
 		}
 	}
 
@@ -874,7 +1006,7 @@ private:
 		D3D11_TEXTURE2D_DESC desc;
 		desc.Width = width;
 		desc.Height = height;
-		desc.MipLevels = MAX_MIP_LEVELS;
+		desc.MipLevels = 1;
 		desc.ArraySize = 1;
 		desc.Format = DXGI_FORMAT_R16_FLOAT; // 1 component f16 target
 		desc.SampleDesc.Count = 1;
@@ -882,7 +1014,7 @@ private:
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 		desc.CPUAccessFlags = 0;
-		desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;	//Allows mip generation with context->GenerateMips()
+		desc.MiscFlags = 0;	//Allows mip generation with context->GenerateMips()
 
 		hr = pD3DDevice->CreateTexture2D(&desc, NULL, &m_pSSAOTexture);
 		if (FAILED(hr))
@@ -901,7 +1033,7 @@ private:
 		srvDesc.Format = desc.Format;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Texture2D.MostDetailedMip = 0;
-		srvDesc.Texture2D.MipLevels = MAX_MIP_LEVELS;
+		srvDesc.Texture2D.MipLevels = 1;
 
 		hr = pD3DDevice->CreateShaderResourceView(m_pSSAOTexture, &srvDesc, &m_pSSAOSRV);
 		if (FAILED(hr))
@@ -986,6 +1118,27 @@ private:
 	ShaderSet m_SSAOShaders[kMaxSSAOTypes];
 	ShaderSet m_GaussBlur;
 
+	//FastBlurs
+	ShaderSet m_GaussX;
+	ShaderSet m_GaussY;
+	ShaderSet m_kawase;
+
+	BlurCBData m_BlurCBData;
+	ID3D11Buffer* m_pBlurCBData = nullptr;
+
+	enum BlurType {
+		kSlowGauss = 0,
+		kFastGauss,
+		kKawase,
+		kMaxBlurs
+	};
+	std::string m_blurNames[kMaxBlurs] = {
+		"Slow Gaussian: 25 Sample",
+		"Fast Gaussian: 7 Tap XY",
+		"Kawase: 0, 1, 2, 2, 3",
+	};
+	u16 m_blurSelect = 0;
+
 	SSAOCBData m_SSAOCBData;
 	ID3D11Buffer* m_pSSAOCB = nullptr;
 	
@@ -1003,21 +1156,20 @@ private:
 	float m_blurSigma = 7.0f;
 	bool m_blurOn = true;
 
-	//Generate and use Mips
-	bool m_GenerateMips = false;
-	int m_mipLevel = 0;
-
 	int m_blurTargetDownSize = 1;
 	int m_ssaoTargetDownSize = 1;
+
+	D3D11_VIEWPORT m_dsViewport;
+	D3D11_VIEWPORT m_fsViewport;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
 	ID3D11RenderTargetView*		m_pSSAORTV = nullptr;
 	ID3D11ShaderResourceView*	m_pSSAOSRV = nullptr;
 
 	//PostFx -- Blurred SSAO Buffer
-	ID3D11Texture2D*			m_pBlurSSAOTexture = nullptr;
-	ID3D11RenderTargetView*		m_pBlurSSAORTV = nullptr;
-	ID3D11ShaderResourceView*	m_pBlurSSAOSRV = nullptr;
+	ID3D11Texture2D*			m_pBlurSSAOTextures[2] = { nullptr, nullptr };
+	ID3D11RenderTargetView*		m_pBlurSSAORTV[2] = { nullptr, nullptr };
+	ID3D11ShaderResourceView*	m_pBlurSSAOSRV[2] = { nullptr, nullptr };
 
 	// GBuffer objects
 	ID3D11Texture2D*		m_pGBufferTexture[kMaxGBufferTextures];

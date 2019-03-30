@@ -23,11 +23,16 @@ cbuffer SSAOCB : register(b1)
 	float g_scale;
 	float g_bias;
 	int	  g_samples;
+	float g_maxDistance;
+	float _pad1[1];
+}
+
+cbuffer BlurCB : register(b2)
+{
 	int   g_blurKernelSz;
 	float g_blurSigma;
-	float g_maxDistance;
-	int g_mipLevel;
-	float g_pad[2];
+	int g_downsampleBlurFac;
+	int g_kawaseIteration;
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -108,7 +113,7 @@ float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 	float3 v = diff / l;
 	float d = l * g_scale;
 
-	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d));
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
 	val *= smoothstep(g_maxDistance, g_maxDistance * 0.5, l);
 	return val;
 }
@@ -154,7 +159,10 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	ao /= (float)iterations*4.0;
 	o = ao;
 
-	return o;
+	//TEST:
+	//pow(occlusion, power);
+
+	return ao;
 }
 
 float PS_SSAO_03(VertexOutput i) : SV_TARGET
@@ -182,7 +190,7 @@ float PS_SSAO_03(VertexOutput i) : SV_TARGET
 	ao /= (float)iterations*4.0;
 	o = ao;
 
-	return o;
+	return ao;
 }
 
 //Spiral SSAO --
@@ -327,8 +335,9 @@ float normpdf(float x, float sigma)
 
 float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 {
-	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
-	//declare stuff - 5 element filter xy
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
+
 	const int mSize = 11;
 	const int kSize = (mSize - 1) / 2;
 	float kernel[mSize];
@@ -348,13 +357,15 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 		Z += kernel[j];
 	}
 
+	//make sure we are targetting the correct resolution for blurs
+	float2 targetSize = float2(screenW, screenH);
+
 	//read out the texels
 	for (int k = -kSize; k <= kSize; ++k)
 	{
 		for (int l = -kSize; l <= kSize; ++l)
 		{
-			float samp = //ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)));
-				ssaoBuffer.SampleLevel(linearMipSampler, input.uv + (float2(k, l) / float2(screenW, screenH)), g_mipLevel);
+			float samp = ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / targetSize));
 			final += kernel[kSize + l] * kernel[kSize + k] * samp.x;
 		}
 	}
@@ -362,69 +373,102 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	return float(final / (Z*Z));
 }
 
-float PS_BLUR_GAUSS_FAST_X(VertexOutput input) : SV_TARGET
+//http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+//Fast Gaussian Blur, 7 tap -- X Y Seperation
+static float offset[3] = { 0.0, 1.3846153846, 3.2307692308 };
+static float weight[3] = { 0.2270270270, 0.3162162162, 0.0702702703 };
+
+float PS_BLUR_GAUSS_X(VertexOutput input) : SV_TARGET
 {
-	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
-	float sum = 0.0f;
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
 
-	//the amount to blur, i.e. how far off center to sample from 
-	//1.0 -> blur by one pixel
-	//2.0 -> blur by two pixels, etc.
-	float blur = g_blurKernelSz / screenH;
+	float output = ssaoBuffer.Sample(linearMipSampler, input.vpos.xy / RTSize) * weight[0];
 
-	//the direction of our blur
-	//(1.0, 0.0) -> x-axis blur
-	float hstep = 1.0;
-	float vstep = 0.0;
+	for (int i = 1; i < 3; i++)
+	{
+		output += ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy + float2(offset[i], 0.0)) / RTSize) * weight[i];
+		output += ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy - float2(offset[i], 0.0)) / RTSize) * weight[i];
+	}
 
-	//apply blurring, using a 9-tap filter with predefined gaussian weights
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 4.0*blur*hstep, input.uv.y - 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 3.0*blur*hstep, input.uv.y - 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 2.0*blur*hstep, input.uv.y - 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 1.0*blur*hstep, input.uv.y - 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
-
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x, input.uv.y), g_mipLevel) * 0.2270270270;
-
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 1.0*blur*hstep, input.uv.y + 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 2.0*blur*hstep, input.uv.y + 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 3.0*blur*hstep, input.uv.y + 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 4.0*blur*hstep, input.uv.y + 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
-
-	return sum;
+	return output;
 }
 
-float PS_BLUR_GAUSS_FAST_Y(VertexOutput input) : SV_TARGET
+float PS_BLUR_GAUSS_Y(VertexOutput input) : SV_TARGET
 {
-	//Look here? https://github.com/mattdesl/lwjgl-basics/wiki/ShaderLesson5
-	float sum = 0.0f;
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
 
-	//the amount to blur, i.e. how far off center to sample from 
-	//1.0 -> blur by one pixel
-	//2.0 -> blur by two pixels, etc.
-	float blur = g_blurKernelSz / screenH;
-
-	//the direction of our blur
-	//(0.0, 1.0) -> y-axis blur
-	float hstep = 0.0;
-	float vstep = 1.0;
-
-	//apply blurring, using a 9-tap filter with predefined gaussian weights
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 4.0*blur*hstep, input.uv.y - 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 3.0*blur*hstep, input.uv.y - 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 2.0*blur*hstep, input.uv.y - 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x - 1.0*blur*hstep, input.uv.y - 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
-
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x, input.uv.y), g_mipLevel) * 0.2270270270;
-
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 1.0*blur*hstep, input.uv.y + 1.0*blur*vstep), g_mipLevel)* 0.1945945946;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 2.0*blur*hstep, input.uv.y + 2.0*blur*vstep), g_mipLevel)* 0.1216216216;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 3.0*blur*hstep, input.uv.y + 3.0*blur*vstep), g_mipLevel)* 0.0540540541;
-	sum = ssaoBuffer.SampleLevel(linearMipSampler, float2(input.uv.x + 4.0*blur*hstep, input.uv.y + 4.0*blur*vstep), g_mipLevel)* 0.0162162162;
-
-	return sum;
+	float output = ssaoBuffer.Sample(linearMipSampler, input.vpos.xy / RTSize) * weight[0];
+	
+	for (int i = 1; i < 3; i++) 
+	{
+		output += ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy + float2(0.0, offset[i])) / RTSize) * weight[i];
+		output += ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy - float2(0.0, offset[i])) / RTSize) * weight[i];
+	}
+	
+	return output;
 }
 
-//float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
-//{
-//
-//}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Developed by Masaki Kawase, Bunkasha Games
+// Used in DOUBLE-S.T.E.A.L. (aka Wreckless)
+// From his GDC2003 Presentation: Frame Buffer Postprocessing Effects in  DOUBLE-S.T.E.A.L (Wreckless)
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+static int kawaseKernel[5] = { 0, 1, 2, 2, 3 };
+
+float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
+{
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x, 1.f / RTSize.y);
+
+	float2 texCoordSample;
+	float2 halfPixelSize = RTPixelSz / 2.0f;
+	float2 dUV = (RTPixelSz * float2(kawaseKernel[g_kawaseIteration], kawaseKernel[g_kawaseIteration])) + halfPixelSize.xy;
+
+	float cOut;
+
+	// Sample top left pixel
+	texCoordSample.x = input.uv.x - dUV.x;
+	texCoordSample.y = input.uv.y + dUV.y;
+	cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample top right pixel
+	texCoordSample.x = input.uv.x + dUV.x;
+	texCoordSample.y = input.uv.y + dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample bottom right pixel
+	texCoordSample.x = input.uv.x + dUV.x;
+	texCoordSample.y = input.uv.y - dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Sample bottom left pixel
+	texCoordSample.x = input.uv.x - dUV.x;
+	texCoordSample.y = input.uv.y - dUV.y;
+	cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	//texCoordSample.x = input.vpos/RTSize.x - dUV.x;
+	//texCoordSample.y = input.vpos/RTSize.y + dUV.y;
+	//cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	//// Sample top right pixel
+	//texCoordSample.x = input.vpos.x/RTSize.x + dUV.x;
+	//texCoordSample.y = input.vpos.y/RTSize.y + dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	//// Sample bottom right pixel
+	//texCoordSample.x = input.vpos.x/RTSize.x + dUV.x;
+	//texCoordSample.y = input.vpos.y/RTSize.y - dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	//// Sample bottom left pixel
+	//texCoordSample.x = input.vpos.x/RTSize.x - dUV.x;
+	//texCoordSample.y = input.vpos.y/RTSize.y - dUV.y;
+	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
+
+	// Average 
+	cOut *= 0.25f;
+
+	return cOut;
+}

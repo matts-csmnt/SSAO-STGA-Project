@@ -301,8 +301,8 @@ private:
 };
 
 // Caching these for convenience
-int Window::s_width = 1024;
-int Window::s_height = 768;
+int Window::s_width = 1920;
+int Window::s_height = 1017;
 
 // ========================================================
 // RenderWindowD3D11
