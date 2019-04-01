@@ -4,6 +4,7 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include <vector>
+#include <queue>
 
 #include "fbx_load.h"
 #include "Samplers.h"
@@ -14,6 +15,7 @@ constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
 
 constexpr u8 MAX_TARGET_DOWNSIZE = 4;
+constexpr int MAX_FRAMES_FOR_PROFILE_QUEUE = 6;
 
 //================================================================================
 // SSAO APPLICATION
@@ -21,6 +23,23 @@ constexpr u8 MAX_TARGET_DOWNSIZE = 4;
 class SSAOApp : public FrameworkApp
 {
 public:
+
+	//For profiling
+	struct FrameData {
+		ID3D11Query* startTime;
+		ID3D11Query* endTime;
+		ID3D11Query* disjoint;
+
+		u64 sData, eData;
+		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dData;
+
+		/*FrameData() : sData(0), eData(0), dData(0)
+		{
+			ZeroMemory(disjoint, sizeof(ID3D11Query));
+			ZeroMemory(startTime, sizeof(ID3D11Query));
+			ZeroMemory(endTime, sizeof(ID3D11Query));
+		}*/
+	};
 
 	struct PerFrameCBData
 	{
@@ -92,6 +111,9 @@ public:
 		m_size = 1.0f;
 		systems.pCamera->eye = v3(10.f, 5.f, 7.f);
 		systems.pCamera->look_at(v3(3.f, 0.5f, 0.f));
+
+		//profiling
+		init_profile_queue();
 
 		create_shaders(systems);
 
@@ -306,6 +328,10 @@ public:
 		// This function displays some useful debugging values, camera positions etc.
 		DemoFeatures::editorHud(systems.pDebugDrawContext);
 
+		//TEST
+		ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Queue Sz: %i", m_profilingDataQueue.size());
+		ImGui::Checkbox("Enable Profiling", &m_enableProfiling);
+
 		//SSAO
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "SSAO Shader Variables");
 		if (ImGui::Button("Next Sampler"))
@@ -494,6 +520,14 @@ public:
 		// Read the GBuffer textures, reconstruct depth and do AO
 		//=======================================================================================
 
+		FrameData frame;
+
+		//Begin profiling for the technique
+		if (m_enableProfiling)
+		{
+			begin_profile_frame(frame, systems.pD3DDevice, systems.pD3DContext);
+		}
+
 		systems.pD3DContext->ClearRenderTargetView(m_pSSAORTV, clearValue);
 
 		// Here we are binding the SSAO buffer as render target
@@ -680,6 +714,13 @@ public:
 
 				break;
 			}
+		}
+
+		//End the technique and try profile
+		if (m_enableProfiling)
+		{
+			end_profile_frame(frame, systems.pD3DContext);
+			profile_oldest_frame(systems.pD3DContext);
 		}
 
 		//=======================================================================================
@@ -1059,6 +1100,71 @@ private:
 		}
 	}
 
+	//Profiling
+	void init_profile_queue()
+	{
+		m_profilingDataQueue.empty();
+	}
+
+	void begin_profile_frame(FrameData& data, ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext)
+	{
+		HRESULT res;
+		//create and start profiling a frame
+		D3D11_QUERY_DESC queryDesc;
+		ZeroMemory(&queryDesc, sizeof(queryDesc));
+
+		queryDesc.Query = D3D11_QUERY_TIMESTAMP;
+		res = pD3DDevice->CreateQuery(&queryDesc, &data.startTime);
+		res = pD3DDevice->CreateQuery(&queryDesc, &data.endTime);
+		queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+		res = pD3DDevice->CreateQuery(&queryDesc, &data.disjoint);
+
+		//Begin events
+		pD3DContext->Begin(data.disjoint);
+		pD3DContext->End(data.startTime);
+	}
+
+	void end_profile_frame(FrameData& data, ID3D11DeviceContext* pD3DContext)
+	{
+		//push frame to queue after ending the event
+		pD3DContext->End(data.endTime);
+		pD3DContext->End(data.disjoint);
+
+		//try immediate profiling		
+		if (S_OK != pD3DContext->GetData(data.disjoint, &data.dData, sizeof(data.dData), 0) ||
+			S_OK != pD3DContext->GetData(data.startTime, &data.sData, sizeof(data.sData), 0) ||
+			S_OK != pD3DContext->GetData(data.endTime, &data.eData, sizeof(data.eData), 0))
+		{
+			add_to_profile_queue(data);
+		}
+		else
+		{
+			//profile
+		}
+	}
+
+	void add_to_profile_queue(FrameData& data)
+	{
+		m_profilingDataQueue.push(data);
+	}
+
+	void profile_oldest_frame(ID3D11DeviceContext* pD3DContext)
+	{
+		FrameData* pFrame = &m_profilingDataQueue.front();
+
+		if (S_OK != pD3DContext->GetData(pFrame->disjoint, &pFrame->dData, sizeof(pFrame->dData), 0) ||
+			S_OK != pD3DContext->GetData(pFrame->startTime, &pFrame->sData, sizeof(pFrame->sData), 0) ||
+			S_OK != pD3DContext->GetData(pFrame->endTime, &pFrame->eData, sizeof(pFrame->eData), 0))
+		{
+			//skip and try again next time
+		}
+		else
+		{ 
+			//profile
+			m_profilingDataQueue.pop();
+		}
+	}
+
 private:
 
 	enum BlendStates
@@ -1202,6 +1308,10 @@ private:
 
 	v3 m_position;
 	f32 m_size;
+
+	//Profiling
+	bool m_enableProfiling = true;
+	std::queue<FrameData> m_profilingDataQueue;
 };
 
 SSAOApp g_app;
