@@ -15,7 +15,8 @@ constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
 
 constexpr u8 MAX_TARGET_DOWNSIZE = 4;
-constexpr int MAX_FRAMES_FOR_PROFILE_QUEUE = 6;
+constexpr int MAX_FRAMES_FOR_PROFILE_QUEUE = 60;
+constexpr float kTargetFrameTimeMs = 16.7f;
 
 //================================================================================
 // SSAO APPLICATION
@@ -25,7 +26,7 @@ class SSAOApp : public FrameworkApp
 public:
 
 	//For profiling
-	struct FrameData {
+	struct FrameProfile {
 		ID3D11Query* startTime;
 		ID3D11Query* endTime;
 		ID3D11Query* disjoint;
@@ -325,12 +326,27 @@ public:
 		// see also : https://github.com/ocornut/imgui
 		//////////////////////////////////////////////////////////////////////////
 
+		ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiSetCond_FirstUseEver);
+		ImGui::Begin("Frame Analysis");
+			ImGui::Checkbox("Enable Profiling", &m_enableProfiling);
+
+			//Copy data over for now... 
+			int elm = 0;
+			for (float f : m_frameData._Get_container())
+			{
+				test_data[elm++] = f;
+			}
+
+			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Technique Timing (ms):", m_profilingDataQueue.size());
+			ImVec2 plotextent(ImGui::GetContentRegionAvailWidth(), 100);
+			ImGui::PlotLines("Technique (ms)", /*&m_frameData._Get_container().front()*/&test_data[0], m_frameData.size(), 0, nullptr, 0, kTargetFrameTimeMs, plotextent);
+
+			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Query Queue Sz: %i", m_profilingDataQueue.size());
+		ImGui::End();
+
+
 		// This function displays some useful debugging values, camera positions etc.
 		DemoFeatures::editorHud(systems.pDebugDrawContext);
-
-		//TEST
-		ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Queue Sz: %i", m_profilingDataQueue.size());
-		ImGui::Checkbox("Enable Profiling", &m_enableProfiling);
 
 		//SSAO
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "SSAO Shader Variables");
@@ -520,7 +536,7 @@ public:
 		// Read the GBuffer textures, reconstruct depth and do AO
 		//=======================================================================================
 
-		FrameData frame;
+		FrameProfile frame;
 
 		//Begin profiling for the technique
 		if (m_enableProfiling)
@@ -1104,9 +1120,11 @@ private:
 	void init_profile_queue()
 	{
 		m_profilingDataQueue.empty();
+		m_frameData.empty();
+		m_frameData.push(0.0f);
 	}
 
-	void begin_profile_frame(FrameData& data, ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext)
+	void begin_profile_frame(FrameProfile& data, ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext)
 	{
 		HRESULT res;
 		//create and start profiling a frame
@@ -1124,7 +1142,7 @@ private:
 		pD3DContext->End(data.startTime);
 	}
 
-	void end_profile_frame(FrameData& data, ID3D11DeviceContext* pD3DContext)
+	void end_profile_frame(FrameProfile& data, ID3D11DeviceContext* pD3DContext)
 	{
 		//push frame to queue after ending the event
 		pD3DContext->End(data.endTime);
@@ -1140,17 +1158,18 @@ private:
 		else
 		{
 			//profile
+			get_profile_timings(data);
 		}
 	}
 
-	void add_to_profile_queue(FrameData& data)
+	void add_to_profile_queue(FrameProfile& data)
 	{
 		m_profilingDataQueue.push(data);
 	}
 
 	void profile_oldest_frame(ID3D11DeviceContext* pD3DContext)
 	{
-		FrameData* pFrame = &m_profilingDataQueue.front();
+		FrameProfile* pFrame = &m_profilingDataQueue.front();
 
 		if (S_OK != pD3DContext->GetData(pFrame->disjoint, &pFrame->dData, sizeof(pFrame->dData), 0) ||
 			S_OK != pD3DContext->GetData(pFrame->startTime, &pFrame->sData, sizeof(pFrame->sData), 0) ||
@@ -1161,8 +1180,31 @@ private:
 		else
 		{ 
 			//profile
+			get_profile_timings(*pFrame);
 			m_profilingDataQueue.pop();
 		}
+	}
+
+	void get_profile_timings(FrameProfile& data)
+	{
+		//do timings and push to the visual data queue
+		float d;
+
+		if (!data.dData.Disjoint)
+		{
+			u64 Delta = data.eData - data.sData;
+			float Frequency = static_cast<float>(data.dData.Frequency);
+			d = (Delta / Frequency) * 1000.0f;
+		}
+
+		//pop oldest timing...
+		if (m_frameData.size() > MAX_FRAMES_FOR_PROFILE_QUEUE)
+		{
+			m_frameData.pop();
+		}
+
+		//push newest...
+		m_frameData.push(d);
 	}
 
 private:
@@ -1311,7 +1353,9 @@ private:
 
 	//Profiling
 	bool m_enableProfiling = true;
-	std::queue<FrameData> m_profilingDataQueue;
+	std::queue<FrameProfile> m_profilingDataQueue;
+	std::queue<float> m_frameData;
+	float test_data[MAX_FRAMES_FOR_PROFILE_QUEUE] = { 0 };
 };
 
 SSAOApp g_app;
