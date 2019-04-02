@@ -590,6 +590,8 @@ public:
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
 
+		systems.pD3DContext->RSSetViewports(1, &m_dsViewport);
+
 		m_BlurCBData.g_blurKernelSz = m_samples_mult;
 		m_BlurCBData.g_blurSigma = m_blurSigma;
 		m_BlurCBData.g_downsampleBlurFac = m_blurTargetDownSize;
@@ -746,7 +748,7 @@ public:
 		//=======================================================================================
 
 		//Back to fullscreen pass viewport
-		//systems.pD3DContext->RSSetViewports(1, &m_fsViewport);
+		systems.pD3DContext->RSSetViewports(1, &m_fsViewport);
 
 		systems.pD3DContext->ClearRenderTargetView(systems.pSwapRenderTarget, clearValue);
 
@@ -1000,8 +1002,8 @@ private:
 		//Create the full screen viewport
 		m_fsViewport.Width = width;
 		m_fsViewport.Height = height;
-		m_fsViewport.TopLeftX = D3D11_VIEWPORT_BOUNDS_MIN;
-		m_fsViewport.TopLeftY = D3D11_VIEWPORT_BOUNDS_MAX;
+		m_fsViewport.TopLeftX = 0;
+		m_fsViewport.TopLeftY = 0;
 		m_fsViewport.MinDepth = 0;
 		m_fsViewport.MaxDepth = 1;
 	}
@@ -1011,8 +1013,8 @@ private:
 		//Create the downsample screen viewport
 		m_dsViewport.Width = width;
 		m_dsViewport.Height = height;
-		m_dsViewport.TopLeftX = D3D11_VIEWPORT_BOUNDS_MIN;
-		m_dsViewport.TopLeftY = D3D11_VIEWPORT_BOUNDS_MAX;
+		m_dsViewport.TopLeftX = 0;
+		m_dsViewport.TopLeftY = 0;
 		m_dsViewport.MinDepth = 0;
 		m_dsViewport.MaxDepth = 1;
 	}
