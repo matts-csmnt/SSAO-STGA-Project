@@ -324,9 +324,12 @@ float PS_SSAO_04(VertexOutput i) : SV_TARGET
 // Other Effects -- Blurs...
 ///////////////////////////////////////////////////////////////////////////////
 
-//https://www.shadertoy.com/view/XdfGDH
-
 Texture2D ssaoBuffer : register(t0);
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// https://www.shadertoy.com/view/XdfGDH
+// A Slow Gaussian that calculates its weights adapted from ^^^
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 float normpdf(float x, float sigma)
 {
@@ -336,7 +339,6 @@ float normpdf(float x, float sigma)
 float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 {
 	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
-	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
 
 	const int mSize = 11;
 	const int kSize = (mSize - 1) / 2;
@@ -357,15 +359,12 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 		Z += kernel[j];
 	}
 
-	//make sure we are targetting the correct resolution for blurs
-	float2 targetSize = float2(screenW, screenH);
-
 	//read out the texels
 	for (int k = -kSize; k <= kSize; ++k)
 	{
 		for (int l = -kSize; l <= kSize; ++l)
 		{
-			float samp = ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / targetSize));
+			float samp = ssaoBuffer.Sample(linearMipSampler, input.uv + (float2(k, l) / RTSize));
 			final += kernel[kSize + l] * kernel[kSize + k] * samp.x;
 		}
 	}
@@ -373,8 +372,10 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	return float(final / (Z*Z));
 }
 
-//http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
-//Fast Gaussian Blur, 7 tap -- X Y Seperation
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+// Fast Gaussian Blur, 7 tap -- X Y Seperation
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static float offset[3] = { 0.0, 1.3846153846, 3.2307692308 };
 static float weight[3] = { 0.2270270270, 0.3162162162, 0.0702702703 };
 
@@ -458,49 +459,6 @@ float PS_BLUR_KAWASE(VertexOutput input) : SV_TARGET
 	float2 dUV = (RTPixelSz * float2(kawaseKernel[g_kawaseIteration], kawaseKernel[g_kawaseIteration])) + halfPixelSize.xy;
 
 	float cOut = DoKawase(input.uv, dUV);
-
-	//// Sample top left pixel
-	//texCoordSample.x = input.uv.x - dUV.x;
-	//texCoordSample.y = input.uv.y + dUV.y;
-	//cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample top right pixel
-	//texCoordSample.x = input.uv.x + dUV.x;
-	//texCoordSample.y = input.uv.y + dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample bottom right pixel
-	//texCoordSample.x = input.uv.x + dUV.x;
-	//texCoordSample.y = input.uv.y - dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample bottom left pixel
-	//texCoordSample.x = input.uv.x - dUV.x;
-	//texCoordSample.y = input.uv.y - dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//scale test
-	//texCoordSample.x = input.vpos/RTSize.x - dUV.x;
-	//texCoordSample.y = input.vpos/RTSize.y + dUV.y;
-	//cOut = ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample top right pixel
-	//texCoordSample.x = input.vpos.x/RTSize.x + dUV.x;
-	//texCoordSample.y = input.vpos.y/RTSize.y + dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample bottom right pixel
-	//texCoordSample.x = input.vpos.x/RTSize.x + dUV.x;
-	//texCoordSample.y = input.vpos.y/RTSize.y - dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	//// Sample bottom left pixel
-	//texCoordSample.x = input.vpos.x/RTSize.x - dUV.x;
-	//texCoordSample.y = input.vpos.y/RTSize.y - dUV.y;
-	//cOut += ssaoBuffer.Sample(linearMipSampler, texCoordSample);
-
-	// Average 
-	//cOut *= 0.25f;
 
 	return cOut;
 }

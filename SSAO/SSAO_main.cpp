@@ -124,7 +124,8 @@ public:
 		
 		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
-		create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		create_blur_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		create_ssao_downsample_viewport(systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
 		// create fullscreen quad for post-fx / lighting passes. (-1, 1) in XY
 		create_mesh_quad_xy(systems.pD3DDevice, m_fullScreenQuad, 1.0f);
@@ -375,11 +376,12 @@ public:
 		if (ImGui::SliderInt("SSAO Target DownSize ^(n)", &m_ssaoTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
 		{
 			create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
+			create_ssao_downsample_viewport(systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 		}
 		if (ImGui::SliderInt("Blur Target DownSize ^(n)", &m_blurTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
 		{
 			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
-			create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+			create_blur_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		}
 
 		//Blur
@@ -544,6 +546,9 @@ public:
 			begin_profile_frame(frame, systems.pD3DDevice, systems.pD3DContext);
 		}
 
+		//Move into ssao viewport dimensions
+		systems.pD3DContext->RSSetViewports(1, &m_ssaoViewport);
+
 		systems.pD3DContext->ClearRenderTargetView(m_pSSAORTV, clearValue);
 
 		// Here we are binding the SSAO buffer as render target
@@ -590,7 +595,8 @@ public:
 		// Read the SSAO texture, Blur the result in the same buffer
 		//=======================================================================================
 
-		systems.pD3DContext->RSSetViewports(1, &m_dsViewport);
+		//Move into blur texture viewport dimensions
+		systems.pD3DContext->RSSetViewports(1, &m_blurViewport);
 
 		m_BlurCBData.g_blurKernelSz = m_samples_mult;
 		m_BlurCBData.g_blurSigma = m_blurSigma;
@@ -864,7 +870,8 @@ public:
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
 		create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
-		create_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		create_blur_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		create_ssao_downsample_viewport(systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 	}
 
 private:
@@ -1008,15 +1015,26 @@ private:
 		m_fsViewport.MaxDepth = 1;
 	}
 
-	void create_downsample_viewport(float width, float height)
+	void create_blur_downsample_viewport(float width, float height)
 	{
 		//Create the downsample screen viewport
-		m_dsViewport.Width = width;
-		m_dsViewport.Height = height;
-		m_dsViewport.TopLeftX = 0;
-		m_dsViewport.TopLeftY = 0;
-		m_dsViewport.MinDepth = 0;
-		m_dsViewport.MaxDepth = 1;
+		m_blurViewport.Width = width;
+		m_blurViewport.Height = height;
+		m_blurViewport.TopLeftX = 0;
+		m_blurViewport.TopLeftY = 0;
+		m_blurViewport.MinDepth = 0;
+		m_blurViewport.MaxDepth = 1;
+	}
+
+	void create_ssao_downsample_viewport(float width, float height)
+	{
+		//Create the downsample screen viewport
+		m_ssaoViewport.Width = width;
+		m_ssaoViewport.Height = height;
+		m_ssaoViewport.TopLeftX = 0;
+		m_ssaoViewport.TopLeftY = 0;
+		m_ssaoViewport.MinDepth = 0;
+		m_ssaoViewport.MaxDepth = 1;
 	}
 
 	void create_postfx_resources(ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext, u32 width, u32 height)
@@ -1332,7 +1350,8 @@ private:
 	int m_blurTargetDownSize = 1;
 	int m_ssaoTargetDownSize = 1;
 
-	D3D11_VIEWPORT m_dsViewport;
+	D3D11_VIEWPORT m_blurViewport;
+	D3D11_VIEWPORT m_ssaoViewport;
 	D3D11_VIEWPORT m_fsViewport;
 
 	ID3D11Texture2D*			m_pSSAOTexture = nullptr;
