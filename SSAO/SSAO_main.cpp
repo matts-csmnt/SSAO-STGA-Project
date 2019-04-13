@@ -622,16 +622,19 @@ public:
 		{
 			switch (m_blurSelect)
 			{
-				int iterations;
 			case BlurType::kKawase:
-				iterations = 5;
-				goto startBlur;
+				DoKawase(5, systems, sr_blur);
+				break;
+				//goto startBlur;
 			case BlurType::kKawaseMedium:
-				iterations = 4;
-				goto startBlur;
+				DoKawase(4, systems, sr_blur);
+				break;
+				//goto startBlur;
 			case BlurType::kKawaseSmall:
-				iterations = 3;
-				goto startBlur;
+				DoKawase(3, systems, sr_blur);
+				break;
+				//goto startBlur;
+#if DEAD
 			startBlur:
 
 				for (int i(0); i < iterations; ++i)
@@ -681,7 +684,7 @@ public:
 					}
 				}
 				break;
-
+#endif
 			case BlurType::kSlowGauss:
 				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
 
@@ -1133,6 +1136,61 @@ private:
 		if (FAILED(hr))
 		{
 			panicF("Failed to create SRV of Target for SSAO");
+		}
+	}
+
+	//Blurs
+	void DoKawase(int iterations, SystemsInterface& systems, D3D11_MAPPED_SUBRESOURCE& blurBuffer)
+	{
+		int useBlurSRV = 1;	//which SRV to use in ping-ponging the blur targets
+		f32 clearValue[] = { 0.f, 0.f, 0.f, 0.f };	//clear rtv to...
+		ID3D11RenderTargetView* views[] = { 0, 0 };
+
+		for (int i(0); i < iterations; ++i)
+		{
+			m_BlurCBData.g_kawaseIteration = i;
+
+			// Push Data to GPU
+			if (!FAILED(systems.pD3DContext->Map(m_pBlurCBData, 0, D3D11_MAP_WRITE_DISCARD, 0, &blurBuffer)))
+			{
+				memcpy(blurBuffer.pData, &m_BlurCBData, sizeof(BlurCBData));
+				systems.pD3DContext->Unmap(m_pBlurCBData, 0);
+			}
+
+			//set the blur data constant buffer
+			systems.pD3DContext->PSSetConstantBuffers(2, 1, &m_pBlurCBData);
+
+			//select Target
+			(i % 2 == 0) ?
+				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue) :
+				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
+
+			// Here we are binding the Blur RTV buffer as render target
+			views[0] = (i % 2 == 0) ? m_pBlurSSAORTV[1] : m_pBlurSSAORTV[0];
+			systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+			// Bind our ssao texture as input to the pixel shader
+			if (i != 0)
+			{
+				(i % 2 == 0) ?
+					systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[0]) :
+					systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[1]);
+				(i % 2 == 0) ?
+					useBlurSRV = 1 :
+					useBlurSRV = 0;
+			}
+			else
+			{
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+			}
+
+			//do the blur pass
+			{
+				m_kawase.bind(systems.pD3DContext);
+
+				m_fullScreenQuad.bind(systems.pD3DContext);
+				m_fullScreenQuad.draw(systems.pD3DContext);
+			}
 		}
 	}
 
