@@ -6,7 +6,7 @@
 #include <vector>
 #include <queue>
 
-#include "fbx_load.h"
+#include "..\Libraries\fbx_load.h"
 #include "Samplers.h"
 
 constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
