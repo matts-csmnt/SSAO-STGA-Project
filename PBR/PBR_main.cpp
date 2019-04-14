@@ -60,9 +60,9 @@ public:
 
 	struct PerDrawCBData
 	{
-		material m_mat;
 		m4x4 m_matModel;
 		m4x4 m_matMVP;
+		material m_mat;
 	};
 
 #if DEAD
@@ -507,6 +507,8 @@ public:
 		// Opaque blend
 		systems.pD3DContext->OMSetBlendState(m_pBlendStates[BlendStates::kOpaque], kBlendFactor, kSampleMask);
 
+		mat.albedo = v3(1,1,1);
+
 		// draw a plane
 		{
 			//No Texture Shader
@@ -520,6 +522,7 @@ public:
 				m4x4 matMVP = m_mmRoomPlanes[i] * systems.pCamera->vpMatrix;
 
 				// Update Per Draw Data
+				m_perDrawCBData.m_mat = mat;
 				m_perDrawCBData.m_matModel = m_mmRoomPlanes[i].Transpose();
 				m_perDrawCBData.m_matMVP = matMVP.Transpose();
 
@@ -531,6 +534,8 @@ public:
 			}
 		}
 
+		mat.albedo = v3(1, 1, 0);
+
 		// draw stanford dragon
 		for (int i(0); i < 3; ++i)
 		{
@@ -541,6 +546,7 @@ public:
 			m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
 
 			// Update Per Draw Data
+			m_perDrawCBData.m_mat = mat;
 			m_perDrawCBData.m_matModel = matModel.Transpose();
 			m_perDrawCBData.m_matMVP = matMVP.Transpose();
 
@@ -550,6 +556,9 @@ public:
 			// Draw the mesh.
 			m_s_dragon.draw(systems.pD3DContext);
 		}
+
+		mat.albedo = v3(1, 1, 1);
+
 #if DEAD
 		//=======================================================================================
 		// SSAO
@@ -776,19 +785,19 @@ public:
 		// Bind GBuffer Debugging shader.
 		static int sel = 0;
 		static bool bDebugEnabled = false;
-		ImGui::Checkbox("GBuffer Debug Enable", &bDebugEnabled);
-		if (bDebugEnabled)
-		{
-			const char* aModeNames[] = { "Albido","Normals","Specular","Position","Depth","SSAO"};
-			ImGui::ListBox("GBuffer Debug Mode", &sel, aModeNames, kMaxGBufferDebugModes);
+		//ImGui::Checkbox("GBuffer Debug Enable", &bDebugEnabled);
+		//if (bDebugEnabled)
+		//{
+		//	const char* aModeNames[] = { "Albido","Normals","Specular","Position","Depth","SSAO"};
+		//	ImGui::ListBox("GBuffer Debug Mode", &sel, aModeNames, kMaxGBufferDebugModes);
 
-			m_GBufferDebugShaders[sel].bind(systems.pD3DContext);
+		//	m_GBufferDebugShaders[sel].bind(systems.pD3DContext);
 
-			// ... and draw a full screen quad.
-			m_fullScreenQuad.bind(systems.pD3DContext);
-			m_fullScreenQuad.draw(systems.pD3DContext);
-		}
-		else
+		//	// ... and draw a full screen quad.
+		//	m_fullScreenQuad.bind(systems.pD3DContext);
+		//	m_fullScreenQuad.draw(systems.pD3DContext);
+		//}
+		//else
 		{
 			// if we are not debugging the we bind the lighting shader and start accumulating light volumes.
 			// bind the light constant buffer
@@ -824,19 +833,19 @@ public:
 				break;
 				case kLightType_Point:
 				{
-					m_pointLightShader.bind(systems.pD3DContext);
+					//m_pointLightShader.bind(systems.pD3DContext);
 
-					// Compute Light MVP matrix.
-					m4x4 matModel = m4x4::CreateScale(rLight.m_shaderInfo.m_vAtt.w);
-					matModel *= m4x4::CreateTranslation(v3(rLight.m_shaderInfo.m_vPosition));
-					m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
+					//// Compute Light MVP matrix.
+					//m4x4 matModel = m4x4::CreateScale(rLight.m_shaderInfo.m_vAtt.w);
+					//matModel *= m4x4::CreateTranslation(v3(rLight.m_shaderInfo.m_vPosition));
+					//m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
 
-					// Update Per Draw Data
-					m_perDrawCBData.m_matMVP = matMVP.Transpose();
-					push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
+					//// Update Per Draw Data
+					//m_perDrawCBData.m_matMVP = matMVP.Transpose();
+					//push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
 
-					m_lightVolumeSphere.bind(systems.pD3DContext);
-					m_lightVolumeSphere.draw(systems.pD3DContext);
+					//m_lightVolumeSphere.bind(systems.pD3DContext);
+					//m_lightVolumeSphere.draw(systems.pD3DContext);
 				}
 				break;
 				case kLightType_Spot:
@@ -1338,6 +1347,8 @@ private:
 
 	//Cool Meshes
 	Mesh m_s_dragon;
+
+	material mat;
 
 	// Screen quad : for deferred passes
 	Mesh m_fullScreenQuad;

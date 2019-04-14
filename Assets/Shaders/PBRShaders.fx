@@ -42,9 +42,9 @@ cbuffer PerFrameCB : register(b0)
 
 cbuffer PerDrawCB : register(b1)
 {
-	material mat;
 	matrix matModel;
 	matrix matMVP;
+	material mat;
 };
 
 //geometry rendering
@@ -56,6 +56,32 @@ struct GBufferOut {
 SamplerState linearMipSampler : register(s0);
 
 //Shaders-----------------------------------------------------
+//https://mynameismjp.wordpress.com/2009/06/17/storing-normals-using-spherical-coordinates/
+// Converts a normalized cartesian direction vector
+// to spherical coordinates.
+float2 CartesianToSpherical(float3 cartesian)
+{
+	float2 spherical;
+
+	spherical.x = atan2(cartesian.y, cartesian.x) / 3.14159f;
+	spherical.y = cartesian.z;
+
+	return spherical * 0.5f + 0.5f;
+}
+
+// Converts a spherical coordinate to a normalized
+// cartesian direction vector.
+float3 SphericalToCartesian(float2 spherical)
+{
+	float2 sinCosTheta, sinCosPhi;
+
+	spherical = spherical * 2.0f - 1.0f;
+	sincos(spherical.x * 3.14159f, sinCosTheta.x, sinCosTheta.y);
+	sinCosPhi = float2(sqrt(1.0 - spherical.y * spherical.y), spherical.y);
+
+	return float3(sinCosTheta.y * sinCosPhi.x, sinCosTheta.x * sinCosPhi.x, sinCosPhi.y);
+}
+
 //Untextured
 VertexOutput PBR_VS(VertexInput i)
 {
@@ -76,8 +102,11 @@ GBufferOut PBR_PS(VertexOutput i)
 	float3 N = normalize(i.normal);
 	float3 V = normalize(camPos - i.wpos);
 	
-	o.vAlbedoMetallic = float4(1,1,1,1);
-	o.vNormalRoughAO = float4(1, 1, 1, 1);
+	o.vAlbedoMetallic = float4(mat.albedo,1);
+
+	o.vNormalRoughAO.xy = CartesianToSpherical(N);
+	o.vNormalRoughAO.zw = float2(1, 1);
+
 	return o;
 }
 
@@ -108,6 +137,12 @@ GBufferOut PBRTex_PS(VertexOutput i)
 
 //Deferred lighting---------------------------------------------------------
 
+static float3  lightColor = float3(23.47, 21.31, 20.79);
+//float3  wi = normalize(lightPos - fragPos);
+//float cosTheta = max(dot(N, Wi), 0.0);
+//float attenuation = calculateAttenuation(fragPos, lightPos);
+//float radiance = lightColor * attenuation * cosTheta;
+
 cbuffer LightInfo : register(b2)
 {
 	float4 vLightPosition; // w == 0 then directional
@@ -136,7 +171,10 @@ VertexOutput VS_Passthrough(VertexInput input)
 
 float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
 {
-	return float4(1,1,1,1);
+	float4 AlMt = gBufferColourSpec.Sample(linearMipSampler, input.uv);
+	float4 NRAO = gBufferNormalPow.Sample(linearMipSampler, input.uv);
+	float3 n = SphericalToCartesian(NRAO.xy);
+	return float4(AlMt.xyz,1);
 }
 
 struct LightVolumeVertexOutput
