@@ -98,14 +98,11 @@ VertexOutput PBR_VS(VertexInput i)
 GBufferOut PBR_PS(VertexOutput i)
 {
 	GBufferOut o;
-
-	float3 N = normalize(i.normal);
-	float3 V = normalize(camPos - i.wpos);
 	
-	o.vAlbedoMetallic = float4(mat.albedo,1);
+	o.vAlbedoMetallic = float4(mat.albedo,mat.metallic);
 
-	o.vNormalRoughAO.xy = CartesianToSpherical(N);
-	o.vNormalRoughAO.zw = float2(1, 1);
+	o.vNormalRoughAO.xy = CartesianToSpherical(i.normal);
+	o.vNormalRoughAO.zw = float2(mat.roughness, mat.ao);
 
 	return o;
 }
@@ -127,11 +124,11 @@ GBufferOut PBRTex_PS(VertexOutput i)
 {
 	GBufferOut o;
 
-	float3 N = normalize(i.normal);
-	float3 V = normalize(camPos - i.wpos);
+	o.vAlbedoMetallic = float4(mat.albedo, mat.metallic);
 
-	o.vAlbedoMetallic = float4(1, 1, 1, 1);
-	o.vNormalRoughAO = float4(1, 1, 1, 1);
+	o.vNormalRoughAO.xy = CartesianToSpherical(i.normal);
+	o.vNormalRoughAO.zw = float2(mat.roughness, mat.ao);
+
 	return o;
 }
 
@@ -169,12 +166,112 @@ VertexOutput VS_Passthrough(VertexInput input)
 	return output;
 }
 
+static const float PI = 3.14159265359;
+
+float3 fresnelSchlick(float cosTheta, float3 F0)
+{
+	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+float DistributionGGX(float3 N, float3 H, float roughness)
+{
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float NdotH = max(dot(N, H), 0.0);
+	float NdotH2 = NdotH * NdotH;
+
+	float num = a2;
+	float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+	denom = PI * denom * denom;
+
+	return num / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+	float r = (roughness + 1.0);
+	float k = (r*r) / 8.0;
+
+	float num = NdotV;
+	float denom = NdotV * (1.0 - k) + k;
+
+	return num / denom;
+}
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
+{
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+	float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+
+	return ggx1 * ggx2;
+}
+
 float4 PS_DirectionalLight(VertexOutput input) : SV_TARGET
 {
-	float4 AlMt = gBufferColourSpec.Sample(linearMipSampler, input.uv);
-	float4 NRAO = gBufferNormalPow.Sample(linearMipSampler, input.uv);
+	float2 ScreenUV = (input.vpos.xy / input.vpos.w * 0.5 + 0.5) * float2(1, -1) + float2(0, 1);
+
+	float4 AlMt = gBufferColourSpec.Sample(linearMipSampler, ScreenUV);
+	float4 NRAO = gBufferNormalPow.Sample(linearMipSampler, ScreenUV);
+	float fDepth = gBufferDepth.Sample(linearMipSampler, ScreenUV).r;
+
+	//grab values
 	float3 n = SphericalToCartesian(NRAO.xy);
-	return float4(AlMt.xyz,1);
+	float metallic = AlMt.w;
+	float3 albedo = AlMt.xyz;
+	float roughness = NRAO.z;
+	float ao = NRAO.w;
+
+	// Decode world position for uv
+	float4 clipPos = float4(input.vpos.xy / input.vpos.w, fDepth, 1.0f);
+	float4 viewPos = mul(clipPos, matInverseProjection);
+	viewPos /= viewPos.w;
+	float4 worldPos = mul(viewPos, matInverseView);
+
+	//do directional
+	float3 N = normalize(n);
+	float3 V = normalize(camPos - worldPos.xyz);
+
+	float3 Lo = float3(0,0,0);
+	/*for (int i = 0; i < 4; ++i)
+	{*/
+		float3 L = normalize(vLightPosition - worldPos.xyz);
+		float3 H = normalize(V + L);
+
+		float distance = length(vLightPosition - worldPos.xyz);
+		float attenuation = 1.0 / (distance * distance);
+		float3 radiance = lightColor * attenuation;
+
+		float3 F0 = float3(0.04, 0.04, 0.04);
+		F0 = lerp(F0, albedo, metallic);
+		float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+		float NDF = DistributionGGX(N, H, roughness);
+		float G = GeometrySmith(N, V, L, roughness);
+
+		//cook-torrance brdf
+		float3 numerator = NDF * G * F;
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
+		float3 specular = numerator / max(denominator, 0.001);
+
+		//light contribution
+		float3 kS = F;
+		float3 kD = float3(1,1,1) - kS;
+
+		kD *= 1.0 - metallic;
+
+		float NdotL = max(dot(N, L), 0.0);
+		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+	//}
+
+	float3 ambient = float3(0.03, 0.03, 0.03) * albedo * ao;
+	float3 color = ambient + Lo;
+
+	//reinhardt operator gamma correct
+	color = color / (color + float3(1,1,1));
+	color = pow(color, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+
+	return float4(color,1);
 }
 
 struct LightVolumeVertexOutput
@@ -229,5 +326,74 @@ float4 PS_PointLight(LightVolumeVertexOutput input) : SV_TARGET
 	//float3 diffuseColour = kDiffuse * materialColour * vLightColour.rgb;
 
 	//return float4(diffuseColour.xyz, 1.f);
-	return float4(1,1,1,1);
+	
+	float2 ScreenUV = (input.vScreenPos.xy / input.vScreenPos.w * 0.5 + 0.5) * float2(1, -1) + float2(0, 1);
+
+	float4 AlMt = gBufferColourSpec.Sample(linearMipSampler, ScreenUV);
+	float4 NRAO = gBufferNormalPow.Sample(linearMipSampler, ScreenUV);
+	float fDepth = gBufferDepth.Sample(linearMipSampler, ScreenUV).r;
+
+	// discard fragments we didn't write in the Geometry pass.
+	clip(0.99999f - fDepth);
+
+	//grab values
+	float3 n = SphericalToCartesian(NRAO.xy);
+	float metallic = AlMt.w;
+	float3 albedo = AlMt.xyz;
+	float roughness = NRAO.z;
+	float ao = NRAO.w;
+
+	// Decode world position for uv
+	float4 clipPos = float4(input.vpos.xy / input.vpos.w, fDepth, 1.0f);
+	float4 viewPos = mul(clipPos, matInverseProjection);
+	viewPos /= viewPos.w;
+	float4 worldPos = mul(viewPos, matInverseView);
+
+	//do directional
+	float3 N = normalize(n);
+	float3 V = normalize(camPos - worldPos.xyz);
+
+	float3 Lo = float3(0,0,0);
+	/*for (int i = 0; i < 4; ++i)
+	{*/
+		float3 L = normalize(vLightPosition - worldPos.xyz);
+		float3 H = normalize(V + L);
+
+		float distance = length(vLightPosition - worldPos.xyz);
+		float attenuation = 1.0 / (distance * distance);
+		float3 radiance = vLightColour * attenuation;
+
+		float3 F0 = float3(0.04, 0.04, 0.04);
+		F0 = lerp(F0, albedo, metallic);
+		float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+		float NDF = DistributionGGX(N, H, roughness);
+		float G = GeometrySmith(N, V, L, roughness);
+
+		//cook-torrance brdf
+		float3 numerator = NDF * G * F;
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
+		float3 specular = numerator / max(denominator, 0.001);
+
+		//light contribution
+		float3 kS = F;
+		float3 kD = float3(1,1,1) - kS;
+
+		kD *= 1.0 - metallic;
+
+		float NdotL = max(dot(N, L), 0.0);
+		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+		//}
+
+		// clip outside of volume radius.
+		clip(vLightAtt.w - distance);
+
+		float3 ambient = float3(0.03, 0.03, 0.03) * albedo * ao;
+		float3 color = ambient + Lo;
+
+		//reinhardt operator gamma correct
+		color = color / (color + float3(1,1,1));
+		color = pow(color, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+
+		return float4(color,1);
 }

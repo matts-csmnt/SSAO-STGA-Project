@@ -508,6 +508,9 @@ public:
 		systems.pD3DContext->OMSetBlendState(m_pBlendStates[BlendStates::kOpaque], kBlendFactor, kSampleMask);
 
 		mat.albedo = v3(1,1,1);
+		mat.ao = 0.01f;
+		mat.metallic = 0.05f;
+		mat.roughness = 0.55f;
 
 		// draw a plane
 		{
@@ -535,6 +538,9 @@ public:
 		}
 
 		mat.albedo = v3(1, 1, 0);
+		mat.ao = 0.075f;
+		mat.metallic = 0.3f;
+		mat.roughness = 0.1f;
 
 		// draw stanford dragon
 		for (int i(0); i < 3; ++i)
@@ -834,16 +840,16 @@ public:
 				case kLightType_Point:
 				{
 					//m_pointLightShader.bind(systems.pD3DContext);
-
+					//
 					//// Compute Light MVP matrix.
 					//m4x4 matModel = m4x4::CreateScale(rLight.m_shaderInfo.m_vAtt.w);
 					//matModel *= m4x4::CreateTranslation(v3(rLight.m_shaderInfo.m_vPosition));
 					//m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
-
+					//
 					//// Update Per Draw Data
 					//m_perDrawCBData.m_matMVP = matMVP.Transpose();
 					//push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
-
+					//
 					//m_lightVolumeSphere.bind(systems.pD3DContext);
 					//m_lightVolumeSphere.draw(systems.pD3DContext);
 				}
