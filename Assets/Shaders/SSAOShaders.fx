@@ -113,7 +113,8 @@ float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 	float3 v = diff / l;
 	float d = l * g_scale;
 
-	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
+	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / 1.0 + (d*d)) * g_intensity;	//new falloff (quite quadratic)
+	//float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
 	val *= smoothstep(g_maxDistance, g_maxDistance * 0.5, l);
 	return val;
 }
