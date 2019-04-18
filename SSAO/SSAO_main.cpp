@@ -150,6 +150,7 @@ public:
 		m_pSamplerState[kLinear] = create_basic_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
 		m_pSamplerState[kAniso] = create_aniso_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
 		m_pSamplerState[kPoint] = create_point_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
+		m_pSamplerState[kBiLinear] = create_bilinear_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
 
 		// Setup per-frame data
 		m_perFrameCBData.m_time = 0.0f;
@@ -1321,15 +1322,17 @@ private:
 		kLinear = 0,
 		kAniso,
 		kPoint,
+		kBiLinear,
 		kMaxSamplers
 	};
 	std::string m_samplerNames[kMaxSamplers] = {
 		"Linear",
 		"Anisotropic",
-		"Point"
+		"Point",
+		"BiLinear"
 	};
 	ID3D11SamplerState* m_pSamplerState[kMaxSamplers] = { nullptr };
-	u16 m_samplerSelect = 0;
+	u16 m_samplerSelect = kBiLinear;
 
 	//Room Resources
 	Mesh m_plane;
