@@ -9,6 +9,13 @@
 #include "..\Libraries\fbx_load.h"
 #include "Samplers.h"
 
+#define COLLECT_DATA 1	// flag for collecting data as csv
+#if COLLECT_DATA == 1
+#include <array>
+#include <fstream>
+#include <iostream>
+#endif
+
 constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 constexpr UINT kSampleMask = 0xffffffff;
 constexpr u32 kLightGridSize = 24;
@@ -33,13 +40,6 @@ public:
 
 		u64 sData, eData;
 		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dData;
-
-		/*FrameData() : sData(0), eData(0), dData(0)
-		{
-			ZeroMemory(disjoint, sizeof(ID3D11Query));
-			ZeroMemory(startTime, sizeof(ID3D11Query));
-			ZeroMemory(endTime, sizeof(ID3D11Query));
-		}*/
 	};
 
 	struct PerFrameCBData
@@ -110,8 +110,8 @@ public:
 	{
 		m_position = v3(0.5f, 0.5f, 0.5f);
 		m_size = 1.0f;
-		systems.pCamera->eye = v3(10.f, 5.f, 7.f);
-		systems.pCamera->look_at(v3(3.f, 0.5f, 0.f));
+		systems.pCamera->eye = v3(44.f, 18.f, 32.f);
+		systems.pCamera->look_at(v3(0.f, 3.f, 0.f));
 
 		//profiling
 		init_profile_queue();
@@ -166,7 +166,7 @@ public:
 
 		m_pSSAOCB = create_constant_buffer<SSAOCBData>(systems.pD3DDevice);
 
-		//m_rndnrm.init_from_dds(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.dds");
+		//random normal lookup tex
 		m_rndnrm.init_from_image(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.png", false);
 
 		//setup plane transforms
@@ -217,28 +217,6 @@ public:
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		); 
 
-		// GBuffer Debugging shaders.
-		m_GBufferDebugShaders[kGBufferDebug_Albido].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Albido")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
-		m_GBufferDebugShaders[kGBufferDebug_Normals].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Normals")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
-		m_GBufferDebugShaders[kGBufferDebug_Specular].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Specular")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
-		m_GBufferDebugShaders[kGBufferDebug_Position].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Position")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
-		m_GBufferDebugShaders[kGBufferDebug_Depth].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_GBufferDebug_Depth")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
-
 		//SSAO---
 		m_SSAOShaders[kStandardSSAO].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_01")
@@ -274,7 +252,7 @@ public:
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
 
-		m_GBufferDebugShaders[kSSAODebug].init(systems.pD3DDevice
+		m_ssaoDebugShader.init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_SSAODebug")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
@@ -344,6 +322,30 @@ public:
 			ImGui::PlotLines("Technique (ms)", /*&m_frameData._Get_container().front()*/&test_data[0], m_frameData.size(), 0, nullptr, 0, kTargetFrameTimeMs, plotextent);
 
 			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Query Queue Sz: %i", m_profilingDataQueue.size());
+
+#if COLLECT_DATA == 1	//send data to csv
+			if (m_enableProfiling) {
+				static bool collect = false;
+				static u64 frame = 0;
+				ImGui::Checkbox("Collect Data as .CSV", &collect);
+				if (collect && (frame & 1023) < 1)	//every 1024 frames collect data
+				{
+					data_out d;
+					//Record data
+					d.frameTime = m_frameData.front();
+					d.blur = m_blurSelect;
+					d.ssao = m_ssaoSelect;
+					d.sampler = m_samplerSelect;
+					d.blurDS = m_blurTargetDownSize;
+					d.ssaoDS = m_ssaoTargetDownSize;
+					d.ssaoSamp = m_samples_mult;
+
+					m_dataCollection.assign(d);
+					ImGui::Text("%d", frame);
+					++frame;
+				}
+			}
+#endif
 		ImGui::End();
 
 
@@ -444,15 +446,8 @@ public:
 		// see also : https://github.com/glampert/debug-draw
 		//////////////////////////////////////////////////////////////////////////
 
-		// Grid from -50 to +50 in both X & Z
 		auto ctx = systems.pDebugDrawContext;
-
-		//dd::xzSquareGrid(ctx, -50.0f, 50.0f, 0.0f, 1.f, dd::colors::DimGray);
 		dd::axisTriad(ctx, (const float*)& m4x4::Identity, 0.1f, 15.0f);
-		//if (systems.pCamera->pointInFrustum(m_position))
-		//{
-		//	dd::projectedText(ctx, "A Box", (const float*)&m_position, dd::colors::White, (const float*)&systems.pCamera->vpMatrix, 0, 0, systems.width, systems.height, 0.5f);
-		//}
 
 		// Push Per Frame Data to GPU
 		D3D11_MAPPED_SUBRESOURCE subresource;
@@ -626,66 +621,12 @@ public:
 			case BlurType::kKawase:
 				DoKawase(5, systems, sr_blur);
 				break;
-				//goto startBlur;
 			case BlurType::kKawaseMedium:
 				DoKawase(4, systems, sr_blur);
 				break;
-				//goto startBlur;
 			case BlurType::kKawaseSmall:
 				DoKawase(3, systems, sr_blur);
 				break;
-				//goto startBlur;
-#if DEAD
-			startBlur:
-
-				for (int i(0); i < iterations; ++i)
-				{
-					m_BlurCBData.g_kawaseIteration = i;
-
-					// Push Data to GPU
-					if (!FAILED(systems.pD3DContext->Map(m_pBlurCBData, 0, D3D11_MAP_WRITE_DISCARD, 0, &sr_blur)))
-					{
-						memcpy(sr_blur.pData, &m_BlurCBData, sizeof(BlurCBData));
-						systems.pD3DContext->Unmap(m_pBlurCBData, 0);
-					}
-
-					// Bind Constant Buffers, to both PS and VS stages
-					ssaoBuffers[2] = { m_pBlurCBData };
-					systems.pD3DContext->PSSetConstantBuffers(0, 3, ssaoBuffers);
-
-					//select Target
-					(i % 2 == 0) ?
-					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue) :
-					systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
-
-					// Here we are binding the Blur RTV buffer as render target
-					views[0] = (i % 2 == 0) ? m_pBlurSSAORTV[1] : m_pBlurSSAORTV[0];
-					systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
-
-					// Bind our ssao texture as input to the pixel shader
-					if (i != 0)
-					{
-						(i % 2 == 0) ?
-							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[0]) :
-							systems.pD3DContext->PSSetShaderResources(0,1,&m_pBlurSSAOSRV[1]);
-						(i % 2 == 0) ?
-							useBlurSRV = 1 :
-							useBlurSRV = 0;
-					}
-					else
-					{
-						systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
-					}
-
-					{
-						m_kawase.bind(systems.pD3DContext);
-
-						m_fullScreenQuad.bind(systems.pD3DContext);
-						m_fullScreenQuad.draw(systems.pD3DContext);
-					}
-				}
-				break;
-#endif
 			case BlurType::kSlowGauss:
 				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
 
@@ -706,6 +647,8 @@ public:
 
 			case BlurType::kFastGauss:
 			default:
+				DoFastGauss(3, systems);
+#if DEAD
 				//X
 				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
 
@@ -739,7 +682,7 @@ public:
 					m_fullScreenQuad.bind(systems.pD3DContext);
 					m_fullScreenQuad.draw(systems.pD3DContext);
 				}
-
+#endif
 				break;
 			}
 		}
@@ -781,17 +724,12 @@ public:
 			systems.pD3DContext->PSSetShaderResources(3, 1, &m_pSSAOSRV);
 		}
 
-		// For exploring the GBuffer data we use a shader.
-		// Bind GBuffer Debugging shader.
-		static int sel = 0;
+		// Bind SSAO Debugging shader.
 		static bool bDebugEnabled = false;
-		ImGui::Checkbox("GBuffer Debug Enable", &bDebugEnabled);
+		ImGui::Checkbox("SSAO Buffer Debug", &bDebugEnabled);
 		if (bDebugEnabled)
 		{
-			const char* aModeNames[] = { "Albido","Normals","Specular","Position","Depth","SSAO"};
-			ImGui::ListBox("GBuffer Debug Mode", &sel, aModeNames, kMaxGBufferDebugModes);
-
-			m_GBufferDebugShaders[sel].bind(systems.pD3DContext);
+			m_ssaoDebugShader.bind(systems.pD3DContext);
 
 			// ... and draw a full screen quad.
 			m_fullScreenQuad.bind(systems.pD3DContext);
@@ -816,7 +754,6 @@ public:
 				// For drawing a directional light which hits everywhere we draw a full screen quad.
 
 				// Update and the light info constants.
-				// rLight.m_shaderInfo.m_vAtt = tuneAtt;
 				push_constant_buffer(systems.pD3DContext, m_pLightInfoCB, rLight.m_shaderInfo);
 
 				switch (rLight.m_type)
@@ -878,6 +815,39 @@ public:
 		create_ssao_downsample_viewport(systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 	}
 
+	void on_shutdown(SystemsInterface& systems) override
+	{
+#if COLLECT_DATA == 1
+		//TO THE DATA FILE FOR TIMING ANALYSIS!
+		std::fstream datalog;
+		datalog.open("Analysis/datalog.csv", std::ios::in | std::ios::app);
+		datalog.seekp(0, std::ios::end);
+
+		int f = datalog.tellg();
+		if (f == 0)  //if we have an empty file, add the col heads
+		{
+			datalog << "Technique Time (ms), SSAO, SSAO DownSample x, SSAO Num Samples, Blur, Blur DownSample x, Sampler Type\n";
+		}
+
+		for(const auto& d : m_dataCollection)
+		{
+		datalog << std::fixed << d.frameTime << ","
+			<< m_ssaoNames[d.ssao] << ","
+			<< d.ssaoDS << ","
+			<< d.ssaoSamp * 4 << ","
+			<< m_blurNames[d.blur] << ","
+			<< d.blurDS << ","
+			<< m_samplerNames[d.sampler]
+#if defined _DEBUG
+			<< ", Debug"
+#else
+			<< ", Release"
+#endif
+			<< std::endl;
+#endif
+		}
+	}
+
 private:
 
 	enum EGBufferConstants
@@ -888,17 +858,6 @@ private:
 
 		kMaxGBufferColourTargets = 2,
 		kMaxGBufferTextures = 3
-	};
-
-	enum EGBufferDebugModes
-	{
-		kGBufferDebug_Albido,
-		kGBufferDebug_Normals,
-		kGBufferDebug_Specular,
-		kGBufferDebug_Position,
-		kGBufferDebug_Depth,
-		kSSAODebug,
-		kMaxGBufferDebugModes
 	};
 
 	void create_gbuffer(ID3D11Device* pD3DDevice, ID3D11DeviceContext* pD3DContext, u32 width, u32 height)
@@ -1195,6 +1154,56 @@ private:
 		}
 	}
 
+	void DoFastGauss(int iterations, SystemsInterface& systems)
+	{
+		ID3D11RenderTargetView* views[] = { 0, 0 };
+		f32 clearValue[] = { 0.f, 0.f, 0.f, 0.f };	//clear rtv to...
+
+		for (int i(0); i < iterations; ++i)
+		{
+			//X
+			systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
+
+			// Here we are binding the Blur RTV buffer as render target
+			views[0] = m_pBlurSSAORTV[0];
+			systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+			// Bind our ssao texture as input to the pixel shader
+			if (i != 0)
+			{
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[1]);
+			}
+			else
+			{
+				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
+			}
+
+			{
+				m_GaussX.bind(systems.pD3DContext);
+
+				m_fullScreenQuad.bind(systems.pD3DContext);
+				m_fullScreenQuad.draw(systems.pD3DContext);
+			}
+
+			//Y
+			systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
+
+			// Here we are binding the Blur RTV buffer as render target
+			views[0] = m_pBlurSSAORTV[1];
+			systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
+
+			// Bind our ssao texture as input to the pixel shader
+			systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[0]);
+
+			{
+				m_GaussY.bind(systems.pD3DContext);
+
+				m_fullScreenQuad.bind(systems.pD3DContext);
+				m_fullScreenQuad.draw(systems.pD3DContext);
+			}
+		}
+	}
+
 	//Profiling
 	void init_profile_queue()
 	{
@@ -1311,7 +1320,7 @@ private:
 	ShaderSet m_geometryNoTex;
 	ShaderSet m_directionalLightShader;
 	ShaderSet m_pointLightShader;
-	ShaderSet m_GBufferDebugShaders[kMaxGBufferDebugModes];
+	ShaderSet m_ssaoDebugShader;
 
 	// Scene related objects
 	Mesh m_meshArray[2];
@@ -1382,7 +1391,7 @@ private:
 	};
 	std::string m_blurNames[kMaxBlurs] = {
 		"Slow Gaussian: 25 Sample",
-		"Fast Gaussian: 7 Tap XY",
+		"Fast Gaussian: 9 tap using 5 texel fetches XY",
 		"Kawase LRG: 0, 1, 2, 2, 3",
 		"Kawase SML: 0, 1, 1",
 		"Kawase MED: 0, 1, 1, 2"
@@ -1438,6 +1447,14 @@ private:
 	std::queue<FrameProfile> m_profilingDataQueue;
 	std::queue<float> m_frameData;
 	float test_data[MAX_FRAMES_FOR_PROFILE_QUEUE] = { 0 };
+#if COLLECT_DATA == 1	//for data collection
+	struct data_out {
+		float frameTime;
+		u16 sampler, ssao, blur;
+		int blurDS, ssaoDS, ssaoSamp;
+	};
+	std::array<data_out, 100> m_dataCollection;
+#endif
 };
 
 SSAOApp g_app;

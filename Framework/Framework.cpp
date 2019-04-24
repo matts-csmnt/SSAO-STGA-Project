@@ -1311,6 +1311,8 @@ int framework_main(FrameworkApp& rApp, const char* pTitleString, HINSTANCE hInst
 	/////////////////////////////////////////////////////////////
 	// And shutdown
 	/////////////////////////////////////////////////////////////
+	rApp.on_shutdown(systems);	//shutdown handler...
+
 	ImGui_ImplDX11_Shutdown();
 
 	dd::shutdown(ddContext);

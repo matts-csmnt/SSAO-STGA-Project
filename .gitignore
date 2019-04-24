@@ -49,3 +49,4 @@ Libraries/Assimp/lib/
 PBR/obj/
 *.docx
 *.tmp
+SSAO/Analysis/

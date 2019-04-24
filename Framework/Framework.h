@@ -144,6 +144,7 @@ public:
 	virtual void on_update(SystemsInterface& rSystems) = 0;
 	virtual void on_render(SystemsInterface& rSystems) = 0;
 	virtual void on_resize(SystemsInterface& rSystems) = 0;
+	virtual void on_shutdown(SystemsInterface& rSystems) = 0;
 protected:
 private:
 };

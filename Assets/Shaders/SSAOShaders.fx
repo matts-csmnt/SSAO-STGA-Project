@@ -375,7 +375,7 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
-// Fast Gaussian Blur, 7 tap -- X Y Seperation
+// Fast Gaussian Blur, 9 tap using 5 texel fetches -- X Y Seperation
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static float offset[3] = { 0.0, 1.3846153846, 3.2307692308 };
 static float weight[3] = { 0.2270270270, 0.3162162162, 0.0702702703 };
