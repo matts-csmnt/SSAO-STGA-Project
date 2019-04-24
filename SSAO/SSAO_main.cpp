@@ -14,6 +14,13 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+constexpr int kEntriesToCollect = 100;
+struct data_out {
+	float frameTime;
+	u16 sampler, ssao, blur;
+	int blurDS, ssaoDS, ssaoSamp;
+};
+std::vector<data_out> g_dataCollection;
 #endif
 
 constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -115,7 +122,9 @@ public:
 
 		//profiling
 		init_profile_queue();
-
+#if COLLECT_DATA == 1
+		g_dataCollection.reserve(kEntriesToCollect);
+#endif
 		create_shaders(systems);
 
 		create_gbuffer(systems.pD3DDevice, systems.pD3DContext, systems.width, systems.height);
@@ -328,7 +337,9 @@ public:
 				static bool collect = false;
 				static u64 frame = 0;
 				ImGui::Checkbox("Collect Data as .CSV", &collect);
-				if (collect && (frame & 1023) < 1)	//every 1024 frames collect data
+				ImGui::TextColored(ImVec4(1, 1, 0, 1), "Entries Collected: %d", g_dataCollection.size());
+
+				if (collect && ((frame & 63) < 1) && (g_dataCollection.size() < kEntriesToCollect))	//every 64 frames collect data
 				{
 					data_out d;
 					//Record data
@@ -340,10 +351,9 @@ public:
 					d.ssaoDS = m_ssaoTargetDownSize;
 					d.ssaoSamp = m_samples_mult;
 
-					m_dataCollection.assign(d);
-					ImGui::Text("%d", frame);
-					++frame;
+					g_dataCollection.push_back(d);
 				}
+				++frame;
 			}
 #endif
 		ImGui::End();
@@ -829,7 +839,7 @@ public:
 			datalog << "Technique Time (ms), SSAO, SSAO DownSample x, SSAO Num Samples, Blur, Blur DownSample x, Sampler Type\n";
 		}
 
-		for(const auto& d : m_dataCollection)
+		for(const auto& d : g_dataCollection)
 		{
 		datalog << std::fixed << d.frameTime << ","
 			<< m_ssaoNames[d.ssao] << ","
@@ -1447,14 +1457,6 @@ private:
 	std::queue<FrameProfile> m_profilingDataQueue;
 	std::queue<float> m_frameData;
 	float test_data[MAX_FRAMES_FOR_PROFILE_QUEUE] = { 0 };
-#if COLLECT_DATA == 1	//for data collection
-	struct data_out {
-		float frameTime;
-		u16 sampler, ssao, blur;
-		int blurDS, ssaoDS, ssaoSamp;
-	};
-	std::array<data_out, 100> m_dataCollection;
-#endif
 };
 
 SSAOApp g_app;
