@@ -412,6 +412,57 @@ float PS_BLUR_GAUSS_Y(VertexOutput input) : SV_TARGET
 	return output;
 }
 
+//Testing something similar to bilateral blurring for keeping detail
+float PS_BLUR_GAUSS_XBI(VertexOutput input) : SV_TARGET
+{
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
+
+	float output = ssaoBuffer.Sample(linearMipSampler, input.vpos.xy / RTSize).r;
+	float centralColor = output;
+	output *= weight[0];
+	float dist;
+
+	for (int i = 1; i < 3; i++)
+	{
+		//test
+		float col = ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy + float2(offset[i], 0.0)) / RTSize).r;
+		dist = min(distance(centralColor, col) * 1.0, 1.0);
+		output += col * (weight[i] * (1.0 - dist));
+
+		col = ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy - float2(offset[i], 0.0)) / RTSize).r;
+		dist = min(distance(centralColor, col) * 1.0, 1.0);
+		output += col * (weight[i] * (1.0 - dist));
+	}
+
+	return output;
+}
+
+float PS_BLUR_GAUSS_YBI(VertexOutput input) : SV_TARGET
+{
+	float2 RTSize = float2(screenW / g_downsampleBlurFac, screenH / g_downsampleBlurFac);
+	float2 RTPixelSz = float2(1.f / RTSize.x,1.f / RTSize.y);
+
+	float output = ssaoBuffer.Sample(linearMipSampler, input.vpos.xy / RTSize).r;
+	float centralColor = output;
+	output *= weight[0];
+	float distanceFromCentralColor;
+
+	for (int i = 1; i < 3; i++)
+	{
+		//test
+		float col = ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy + float2(0.0, offset[i])) / RTSize);
+		distanceFromCentralColor = min(distance(centralColor, col) * 1.0, 1.0);
+		output += col * (weight[i] * (1.0 - distanceFromCentralColor));
+
+		col = ssaoBuffer.Sample(linearMipSampler, (input.vpos.xy - float2(0.0, offset[i])) / RTSize);
+		distanceFromCentralColor = min(distance(centralColor, col) * 1.0, 1.0);
+		output += col * (weight[i] * (1.0 - distanceFromCentralColor));
+	}
+
+	return output;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Developed by Masaki Kawase, Bunkasha Games
 // Used in DOUBLE-S.T.E.A.L. (aka Wreckless)
