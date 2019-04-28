@@ -9,7 +9,8 @@
 #include "..\Libraries\fbx_load.h"
 #include "Samplers.h"
 
-#define COLLECT_DATA 1	// flag for collecting data as csv
+#define COLLECT_DATA 0	// flag for collecting data as csv
+
 #if COLLECT_DATA == 1
 #include <array>
 #include <fstream>
@@ -235,10 +236,6 @@ public:
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_02")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
-		m_SSAOShaders[kStandardRCSSAO].init(systems.pD3DDevice
-			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_03")
-			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
 		m_SSAOShaders[KGPUZENAlchemy].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_04")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
@@ -328,7 +325,7 @@ public:
 
 			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Technique Timing (ms):", m_profilingDataQueue.size());
 			ImVec2 plotextent(ImGui::GetContentRegionAvailWidth(), 100);
-			ImGui::PlotLines("Technique (ms)", /*&m_frameData._Get_container().front()*/&test_data[0], m_frameData.size(), 0, nullptr, 0, kTargetFrameTimeMs, plotextent);
+			ImGui::PlotLines("Technique (ms)", &test_data[0], m_frameData.size(), 0, nullptr, 0, kTargetFrameTimeMs, plotextent);
 
 			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Query Queue Sz: %i", m_profilingDataQueue.size());
 
@@ -410,8 +407,6 @@ public:
 		}
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
-		//ImGui::SliderFloat3("Position", (float*)&m_position, -1.f, 1.f);
-		//ImGui::SliderFloat("Size", &m_size, 0.1f, 10.f);
 
 		// Update Per Frame Data.
 		// calculate view project and inverse so we can project back from depth buffer into world coordinates.
@@ -658,41 +653,6 @@ public:
 			case BlurType::kFastGauss:
 			default:
 				DoFastGauss(3, systems);
-#if DEAD
-				//X
-				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[0], clearValue);
-
-				// Here we are binding the Blur RTV buffer as render target
-				views[0] = m_pBlurSSAORTV[0];
-				systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
-
-				// Bind our ssao texture as input to the pixel shader
-				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pSSAOSRV);
-
-				{
-					m_GaussX.bind(systems.pD3DContext);
-
-					m_fullScreenQuad.bind(systems.pD3DContext);
-					m_fullScreenQuad.draw(systems.pD3DContext);
-				}
-
-				//Y
-				systems.pD3DContext->ClearRenderTargetView(m_pBlurSSAORTV[1], clearValue);
-
-				// Here we are binding the Blur RTV buffer as render target
-				views[0] = m_pBlurSSAORTV[1];
-				systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
-
-				// Bind our ssao texture as input to the pixel shader
-				systems.pD3DContext->PSSetShaderResources(0, 1, &m_pBlurSSAOSRV[0]);
-
-				{
-					m_GaussY.bind(systems.pD3DContext);
-
-					m_fullScreenQuad.bind(systems.pD3DContext);
-					m_fullScreenQuad.draw(systems.pD3DContext);
-				}
-#endif
 				break;
 			}
 		}
@@ -854,8 +814,8 @@ public:
 			<< ", Release"
 #endif
 			<< std::endl;
-#endif
 		}
+#endif
 	}
 
 private:
@@ -1162,6 +1122,10 @@ private:
 				m_fullScreenQuad.draw(systems.pD3DContext);
 			}
 		}
+
+		//unbind for safety
+		views[0] = 0;
+		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
 	}
 
 	void DoFastGauss(int iterations, SystemsInterface& systems)
@@ -1212,6 +1176,10 @@ private:
 				m_fullScreenQuad.draw(systems.pD3DContext);
 			}
 		}
+
+		//unbind for safety
+		views[0] = 0;
+		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
 	}
 
 	//Profiling
@@ -1368,14 +1336,12 @@ private:
 	enum SSAOType {
 		kStandardSSAO = 0,
 		kSpiralSSAO,
-		kStandardRCSSAO,
 		KGPUZENAlchemy,
 		kMaxSSAOTypes
 	};
 	std::string m_ssaoNames[kMaxSSAOTypes] = {
 		"Default Technique",
 		"Spiral Kernel",
-		"Default w/ JC Range Check",
 		"GPU ZEN: Alchemy Spiral"
 	};
 	u16 m_ssaoSelect = 0;
