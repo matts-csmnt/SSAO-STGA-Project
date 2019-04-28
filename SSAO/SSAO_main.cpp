@@ -28,6 +28,7 @@ constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 constexpr UINT kSampleMask = 0xffffffff;
 constexpr u32 kLightGridSize = 24;
 constexpr u16 kRoomPlanes = 3;
+constexpr int kNumBoxes = 5;
 
 constexpr u8 MAX_TARGET_DOWNSIZE = 4;
 constexpr int MAX_FRAMES_FOR_PROFILE_QUEUE = 60;
@@ -155,6 +156,14 @@ public:
 		// Initialize a mesh from an .OBJ file
 		create_mesh_from_obj(systems.pD3DDevice, m_plane, "../Assets/Models/plane.obj", 2.f);
 		create_mesh_from_obj(systems.pD3DDevice, m_lightVolumeSphere, "../Assets/Models/unit_sphere.obj", 1.f);
+
+		//some cubes
+		create_mesh_cube(systems.pD3DDevice, m_box, 1.5f);
+		m_boxes[0] = m4x4::CreateTranslation(-28.f, 1.5f, 5.f) * m4x4::CreateRotationY(degToRad(90));
+		m_boxes[1] = m4x4::CreateTranslation(-24.f, 1.5f, 5.f) * m4x4::CreateRotationY(degToRad(90));
+		m_boxes[2] = m4x4::CreateTranslation(-26.f, 4.5f, 5.f) * m4x4::CreateRotationY(degToRad(90));
+		m_boxes[3] = m4x4::CreateTranslation(30.f, 1.5f, 5.f);
+		m_boxes[4] = m4x4::CreateTranslation(35.f, 1.5f, 6.f);
 
 		// We need a sampler state to define wrapping and mipmap parameters.
 		m_pSamplerState[kLinear] = create_basic_sampler(systems.pD3DDevice, D3D11_TEXTURE_ADDRESS_WRAP);
@@ -440,17 +449,6 @@ public:
 
 	void on_render(SystemsInterface& systems) override
 	{
-		//////////////////////////////////////////////////////////////////////////
-		// Imgui can also be used inside the render function.
-		//////////////////////////////////////////////////////////////////////////
-
-
-		//////////////////////////////////////////////////////////////////////////
-		// You can use features from the DebugDrawlibrary.
-		// Investigate the following functions for ideas.
-		// see also : https://github.com/glampert/debug-draw
-		//////////////////////////////////////////////////////////////////////////
-
 		auto ctx = systems.pDebugDrawContext;
 		dd::axisTriad(ctx, (const float*)& m4x4::Identity, 0.1f, 15.0f);
 
@@ -532,6 +530,27 @@ public:
 
 			// Draw the mesh.
 			m_s_dragon.draw(systems.pD3DContext);
+		}
+
+		//draw cubes
+		m_box.bind(systems.pD3DContext);
+
+		for (m4x4 m : m_boxes)
+		{
+
+			// Compute MVP matrix.
+			m4x4 matModel = m;
+			m4x4 matMVP = matModel * systems.pCamera->vpMatrix;
+
+			// Update Per Draw Data
+			m_perDrawCBData.m_matModel = matModel.Transpose();
+			m_perDrawCBData.m_matMVP = matMVP.Transpose();
+
+			// Push to GPU
+			push_constant_buffer(systems.pD3DContext, m_pPerDrawCB, m_perDrawCBData);
+
+			// Draw the mesh.
+			m_box.draw(systems.pD3DContext);
 		}
 
 		//=======================================================================================
@@ -711,12 +730,17 @@ public:
 			// bind the light constant buffer
 			systems.pD3DContext->PSSetConstantBuffers(2, 1, &m_pLightInfoCB);
 
-			static v4 tuneAtt(0.001f, 0.1f, 15.0f, 0.5f);
-			ImGui::DragFloat4("Light Att", (float*)&tuneAtt, 0.0001, 5.0f);
-
 			static int maxLights = m_lights.size();
-			ImGui::SliderInt("Lights", &maxLights, 0, m_lights.size());
+			ImGui::SliderInt("Lights", &maxLights, 1, m_lights.size());
 
+			static v3 light_dir = { 0.5773, 0.5773, 0.5773 };
+			ImGui::SliderFloat3("Light Direction", (float*)&light_dir, 1.0f, -1.f);
+			light_dir.Normalize();
+			m_lights.front().m_shaderInfo.m_vDirection = v4(light_dir.x, light_dir.y, light_dir.z, 1.f);
+
+			static v4 light_col = v4(1.f, 0.7f, .6f, 0.f) * 0.2f;
+			ImGui::ColorEdit4("Light Colour", (float*)&light_col);
+			m_lights.front().m_shaderInfo.m_vColour = light_col;
 
 			for (u32 i = 0; i < (u32)maxLights; ++i)
 			{
@@ -1324,6 +1348,8 @@ private:
 	//Room Resources
 	Mesh m_plane;
 	m4x4 m_mmRoomPlanes[kRoomPlanes];
+	Mesh m_box;
+	m4x4 m_boxes[kNumBoxes];
 
 	//Cool Meshes
 	Mesh m_s_dragon;

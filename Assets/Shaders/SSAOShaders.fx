@@ -119,22 +119,6 @@ float doAmbientOcclusion(float2 tcoord, float2 uv, float3 p, float3 cnorm)
 	return val;
 }
 
-float doAOJCRangeCheck(float2 tcoord, float2 uv, float3 p, float3 cnorm)
-{
-	float3 sample = getPosition(tcoord + uv);
-	float3 diff = sample - p;
-	const float3 v = normalize(diff);
-	const float d = length(diff)*g_scale; //scales distance between occluders and occludee.;
-
-	//range check it so we don't get grey halos around everything
-	float val = max(0.0, dot(cnorm, v) - g_bias)*(1.0 / (1.0 + d)) * g_intensity;
-
-	//https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
-	//Check if sample is in range of geometry and is not behind something
-	float rangeCheck = abs(p.z - sample.z) < g_sample_rad ? 1.0 : 0.0;
-	return val *= (p.z <= sample.z ? 1.0 : 0.0) * rangeCheck;
-}
-
 float PS_SSAO_01(VertexOutput i) : SV_TARGET
 {
 	float o;
@@ -162,34 +146,6 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 
 	//TEST:
 	//pow(occlusion, power);
-
-	return ao;
-}
-
-float PS_SSAO_03(VertexOutput i) : SV_TARGET
-{
-	float o;
-	const float2 vec[4] = { float2(1,0),float2(-1,0), float2(0,1),float2(0,-1) };
-	float3 p = getPosition(i.uv);
-	float3 n = getNormal(i.uv);
-	float2 rand = getRandom(i.uv);
-	float ao = 0.0f;
-	float rad = g_sample_rad / p.z;
-
-	int iterations = g_samples;
-	for (int j = 0; j < iterations; ++j)
-	{
-		float2 coord1 = reflect(vec[j], rand)*rad;
-		float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
-
-		//Try with different range checking method...
-		ao += doAOJCRangeCheck(i.uv, coord1*0.25, p, n);
-		ao += doAOJCRangeCheck(i.uv, coord2*0.5, p, n);
-		ao += doAOJCRangeCheck(i.uv, coord1*0.75, p, n);
-		ao += doAOJCRangeCheck(i.uv, coord2, p, n);
-	}
-	ao /= (float)iterations*4.0;
-	o = ao;
 
 	return ao;
 }

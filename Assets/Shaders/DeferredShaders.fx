@@ -62,10 +62,9 @@ struct GBufferOut {
 GBufferOut PS_Geometry_NoTex(VertexOutput input) : SV_TARGET
 {
 	GBufferOut gbuffer;
-	float lightIntensity = dot(normalize(float3(1,1,1)), input.normal);
 
 	// Albido.
-	gbuffer.vColourSpec.rgb = input.color.xyz;
+	gbuffer.vColourSpec.rgb = float3(0.9,0.9,0.9); // Force everything to white so we see effects of SSAO better
 	gbuffer.vColourSpec.a = 0.f;
 
 	gbuffer.vNormalPow.rgb = normalize(input.normal);
