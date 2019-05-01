@@ -1,18 +1,23 @@
+//================================================================================
+// Screen Space Ambient Occlusion
+// Matthew Stephenson - 24019001 - 2019
+//
+//================================================================================
 #include "Framework.h"
-
 #include "ShaderSet.h"
 #include "Mesh.h"
 #include "Texture.h"
+
 #include <vector>
 #include <queue>
 
 #include "..\Libraries\fbx_load.h"
 #include "Samplers.h"
 
-#define COLLECT_DATA 0	// flag for collecting data as csv
+//-- flag for collecting data as csv file
+#define COLLECT_DATA 0
 
 #if COLLECT_DATA == 1
-#include <array>
 #include <fstream>
 #include <iostream>
 constexpr int kEntriesToCollect = 100;
@@ -23,16 +28,18 @@ struct data_out {
 };
 std::vector<data_out> g_dataCollection;
 #endif
+//--
 
 constexpr float kBlendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 constexpr UINT kSampleMask = 0xffffffff;
 constexpr u32 kLightGridSize = 24;
-constexpr u16 kRoomPlanes = 3;
-constexpr int kNumBoxes = 5;
 
-constexpr u8 MAX_TARGET_DOWNSIZE = 4;
-constexpr int MAX_FRAMES_FOR_PROFILE_QUEUE = 60;
-constexpr float kTargetFrameTimeMs = 16.7f;
+constexpr u16	kRoomPlanes = 3;	//Planes count for scene
+constexpr int	kNumBoxes = 5;		//Box count for scene
+
+constexpr u8	MAX_TARGET_DOWNSIZE = 4;			//Max downsize ^n resolution
+constexpr int	MAX_FRAMES_FOR_PROFILE_QUEUE = 60;	//Limit profiling (DX Internal Queries) to 60 entries in the queue
+constexpr float kTargetFrameTimeMs = 16.7f;			//Whole frame time in ms (60fps) for graph scaling
 
 //================================================================================
 // SSAO APPLICATION
@@ -41,7 +48,7 @@ class SSAOApp : public FrameworkApp
 {
 public:
 
-	//For profiling
+	//-- DX Profiling struct
 	struct FrameProfile {
 		ID3D11Query* startTime;
 		ID3D11Query* endTime;
@@ -51,6 +58,7 @@ public:
 		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dData;
 	};
 
+	//-- Constant Buffers
 	struct PerFrameCBData
 	{
 		m4x4 m_matProjection;
@@ -84,12 +92,12 @@ public:
 
 	struct BlurCBData
 	{
-		int   g_blurKernelSz;
-		float g_blurSigma;
 		int g_downsampleBlurFac;
 		int g_kawaseIteration;
+		float _pad2[2];
 	};
 
+	//-- Lights...
 	enum ELightType
 	{
 		kLightType_Directional,
@@ -97,7 +105,6 @@ public:
 		kLightType_Spot
 	};
 
-	// Light info presented to the shader constant buffer.
 	struct LightInfo
 	{
 		v4 m_vPosition; // w == 0 then directional
@@ -108,13 +115,13 @@ public:
 		v4 m_vAmbient = v4(0,0,0,0);
 	};
 
-	// A more general light management structure.
 	struct Light
 	{
 		LightInfo m_shaderInfo;
 		ELightType m_type;
 	};
 
+	//-- Application Functions...
 	void on_init(SystemsInterface& systems) override
 	{
 		m_position = v3(0.5f, 0.5f, 0.5f);
@@ -122,8 +129,10 @@ public:
 		systems.pCamera->eye = v3(44.f, 18.f, 32.f);
 		systems.pCamera->look_at(v3(0.f, 3.f, 0.f));
 
-		//profiling
+		//Frame Profiling
 		init_profile_queue();
+
+		//Data collection
 #if COLLECT_DATA == 1
 		g_dataCollection.reserve(kEntriesToCollect);
 #endif
@@ -136,6 +145,7 @@ public:
 		create_ssao_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
 		create_blur_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
+		
 		create_ssao_downsample_viewport(systems.width / m_ssaoTargetDownSize, systems.height / m_ssaoTargetDownSize);
 
 		// create fullscreen quad for post-fx / lighting passes. (-1, 1) in XY
@@ -152,6 +162,9 @@ public:
 
 		//create blur CB
 		m_pBlurCBData = create_constant_buffer<BlurCBData>(systems.pD3DDevice);
+
+		//SSAO constant buffer
+		m_pSSAOCB = create_constant_buffer<SSAOCBData>(systems.pD3DDevice);
 
 		// Initialize a mesh from an .OBJ file
 		create_mesh_from_obj(systems.pD3DDevice, m_plane, "../Assets/Models/plane.obj", 2.f);
@@ -176,14 +189,12 @@ public:
 		m_perFrameCBData.m_screenW = systems.width;
 		m_perFrameCBData.m_screenH = systems.height;
 
-		//SSAO---
+		//Stanford Dragon model -- converted from -- http://www.graphics.stanford.edu/data/3Dscanrep/
 		bool mOk = create_mesh_from_fbx(systems.pD3DDevice, m_s_dragon, "../Assets/Models/s_dragon/stanford-dragon.fbx");
 		if (!mOk)
 		{
 			panicF("Error Loading FBX");
 		}
-
-		m_pSSAOCB = create_constant_buffer<SSAOCBData>(systems.pD3DDevice);
 
 		//random normal lookup tex
 		m_rndnrm.init_from_image(systems.pD3DDevice, "../Assets/Textures/rnd_nrm.png", false);
@@ -271,6 +282,7 @@ public:
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/DeferredShaders.fx", "VS_Passthrough", "PS_SSAODebug")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
+
 		create_lights();
 	}
 
@@ -316,9 +328,7 @@ public:
 	void on_update(SystemsInterface& systems) override
 	{
 		//////////////////////////////////////////////////////////////////////////
-		// You can use features from the ImGui library.
-		// Investigate the ImGui::ShowDemoWindow() function for ideas.
-		// see also : https://github.com/ocornut/imgui
+		// Create profiling window
 		//////////////////////////////////////////////////////////////////////////
 
 		ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiSetCond_FirstUseEver);
@@ -368,7 +378,11 @@ public:
 		// This function displays some useful debugging values, camera positions etc.
 		DemoFeatures::editorHud(systems.pDebugDrawContext);
 
-		//SSAO
+		//////////////////////////////////////////////////////////////////////////
+		// Main GUI window
+		//////////////////////////////////////////////////////////////////////////
+
+		//-- SSAO
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "SSAO Shader Variables");
 		if (ImGui::Button("Next Sampler"))
 		{
@@ -387,10 +401,12 @@ public:
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
 		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
-		
+		//--
+
 		//Another value to play with for comparison with spiral kernel
 		ImGui::SliderFloat("Max Distance", &m_maxDistance, 0.0f, 4.0f);
 
+		//-- Downsampling
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "PostFx Pipeline");
 		if (ImGui::SliderInt("SSAO Target DownSize ^(n)", &m_ssaoTargetDownSize, 1, MAX_TARGET_DOWNSIZE))
 		{
@@ -402,8 +418,9 @@ public:
 			create_postfx_resources(systems.pD3DDevice, systems.pD3DContext, systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 			create_blur_downsample_viewport(systems.width / m_blurTargetDownSize, systems.height / m_blurTargetDownSize);
 		}
+		//--
 
-		//Blur
+		//-- Blur Customisation
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Blur Shader Variables");
 		ImGui::Checkbox("Blur ON", &m_blurOn);
 		if (m_blurOn)
@@ -414,6 +431,7 @@ public:
 			}
 			ImGui::TextColored(ImVec4(1, 0, 1, 1), "Blur: %s", m_blurNames[m_blurSelect].c_str());
 		}
+		//--
 
 		ImGui::TextColored(ImVec4(1, 1, 0, 1), "Framework Variables");
 
@@ -428,7 +446,6 @@ public:
 		m_perFrameCBData.m_matViewProjection = matViewProj.Transpose();
 		m_perFrameCBData.m_matInverseProjection = matInverseProj.Transpose();
 		m_perFrameCBData.m_matInverseView = matInverseView.Transpose();
-
 		m_perFrameCBData.m_time += 0.001f;
 
 		// move our lights
@@ -612,14 +629,12 @@ public:
 
 		//=======================================================================================
 		// Blur Post FX
-		// Read the SSAO texture, Blur the result in the same buffer
+		// Read the SSAO texture, Blur the result by ping-ponging render targets
 		//=======================================================================================
 
 		//Move into blur texture viewport dimensions
 		systems.pD3DContext->RSSetViewports(1, &m_blurViewport);
 
-		m_BlurCBData.g_blurKernelSz = m_samples_mult;
-		m_BlurCBData.g_blurSigma = m_blurSigma;
 		m_BlurCBData.g_downsampleBlurFac = m_blurTargetDownSize;
 		m_BlurCBData.g_kawaseIteration = 0;
 
@@ -1206,7 +1221,7 @@ private:
 		systems.pD3DContext->OMSetRenderTargets(2, views, NULL);
 	}
 
-	//Profiling
+	//-- Frame Time Profiling
 	void init_profile_queue()
 	{
 		m_profilingDataQueue.empty();
@@ -1296,6 +1311,7 @@ private:
 		//push newest...
 		m_frameData.push(d);
 	}
+	//--
 
 private:
 
@@ -1307,28 +1323,6 @@ private:
 	};
 	ID3D11BlendState* m_pBlendStates[kMaxBlendStates];
 
-	PerFrameCBData m_perFrameCBData;
-	ID3D11Buffer* m_pPerFrameCB = nullptr;
-
-	PerDrawCBData m_perDrawCBData;
-	ID3D11Buffer* m_pPerDrawCB = nullptr;
-
-
-	std::vector<Light> m_lights;
-	ID3D11Buffer* m_pLightInfoCB = nullptr;
-
-
-	ShaderSet m_geometryPassShader;
-	ShaderSet m_geometryNoTex;
-	ShaderSet m_directionalLightShader;
-	ShaderSet m_pointLightShader;
-	ShaderSet m_ssaoDebugShader;
-
-	// Scene related objects
-	Mesh m_meshArray[2];
-	Texture m_textureArray[2];
-
-	//Samplers
 	enum SamplerType {
 		kLinear = 0,
 		kAniso,
@@ -1342,23 +1336,7 @@ private:
 		"Point",
 		"BiLinear"
 	};
-	ID3D11SamplerState* m_pSamplerState[kMaxSamplers] = { nullptr };
-	u16 m_samplerSelect = kBiLinear;
 
-	//Room Resources
-	Mesh m_plane;
-	m4x4 m_mmRoomPlanes[kRoomPlanes];
-	Mesh m_box;
-	m4x4 m_boxes[kNumBoxes];
-
-	//Cool Meshes
-	Mesh m_s_dragon;
-
-	// Screen quad : for deferred passes
-	Mesh m_fullScreenQuad;
-	Mesh m_lightVolumeSphere;
-
-	//SSAO Shader Resources
 	enum SSAOType {
 		kStandardSSAO = 0,
 		kSpiralSSAO,
@@ -1370,18 +1348,6 @@ private:
 		"Spiral Kernel",
 		"GPU ZEN: Alchemy Spiral"
 	};
-	u16 m_ssaoSelect = 0;
-	Texture m_rndnrm;
-	ShaderSet m_SSAOShaders[kMaxSSAOTypes];
-	ShaderSet m_GaussBlur;
-
-	//FastBlurs
-	ShaderSet m_GaussX;
-	ShaderSet m_GaussY;
-	ShaderSet m_kawase;
-
-	BlurCBData m_BlurCBData;
-	ID3D11Buffer* m_pBlurCBData = nullptr;
 
 	enum BlurType {
 		kSlowGauss = 0,
@@ -1398,10 +1364,61 @@ private:
 		"Kawase SML: 0, 1, 1",
 		"Kawase MED: 0, 1, 1, 2"
 	};
-	u16 m_blurSelect = 0;
+
+	//-- CBs
+	PerFrameCBData m_perFrameCBData;
+	ID3D11Buffer* m_pPerFrameCB = nullptr;
+
+	PerDrawCBData m_perDrawCBData;
+	ID3D11Buffer* m_pPerDrawCB = nullptr;
+
+	std::vector<Light> m_lights;
+	ID3D11Buffer* m_pLightInfoCB = nullptr;
+
+	BlurCBData m_BlurCBData;
+	ID3D11Buffer* m_pBlurCBData = nullptr;
 
 	SSAOCBData m_SSAOCBData;
 	ID3D11Buffer* m_pSSAOCB = nullptr;
+
+	//-- Shaders
+	ShaderSet m_geometryPassShader;
+	ShaderSet m_geometryNoTex;
+	ShaderSet m_directionalLightShader;
+	ShaderSet m_pointLightShader;
+	ShaderSet m_ssaoDebugShader;
+
+	ShaderSet m_SSAOShaders[kMaxSSAOTypes];
+	ShaderSet m_GaussBlur;
+
+	//FastBlurs
+	ShaderSet m_GaussX;
+	ShaderSet m_GaussY;
+	ShaderSet m_kawase;
+
+	//Samplers
+	ID3D11SamplerState* m_pSamplerState[kMaxSamplers] = { nullptr };
+	u16 m_samplerSelect = kBiLinear;
+
+	//Room Resources
+	Mesh m_plane;
+	m4x4 m_mmRoomPlanes[kRoomPlanes];
+	Mesh m_box;
+	m4x4 m_boxes[kNumBoxes];
+
+	//Cool Meshes
+	Mesh m_s_dragon;
+
+	// Screen quad : for deferred passes
+	Mesh m_fullScreenQuad;
+	Mesh m_lightVolumeSphere;
+
+	// Random Normals
+	Texture m_rndnrm;
+
+	//SSAO Shader Resources
+	u16 m_ssaoSelect = 0;
+	u16 m_blurSelect = 0;
 	
 	//SSAO Vars
 	float m_random_size;

@@ -29,10 +29,9 @@ cbuffer SSAOCB : register(b1)
 
 cbuffer BlurCB : register(b2)
 {
-	int   g_blurKernelSz;
-	float g_blurSigma;
 	int g_downsampleBlurFac;
 	int g_kawaseIteration;
+	float _pad2[2];
 }
 
 SamplerState linearMipSampler : register(s0);
@@ -144,9 +143,6 @@ float PS_SSAO_01(VertexOutput i) : SV_TARGET
 	ao /= (float)iterations*4.0;
 	o = ao;
 
-	//TEST:
-	//pow(occlusion, power);
-
 	return ao;
 }
 
@@ -185,7 +181,6 @@ float PS_SSAO_02(VertexOutput i) : SV_TARGET
 	float ao = 0.0f;
 	float rad = g_sample_rad / p.z;
 
-	//float goldenAngle = 2.4;
 	float inv = 1.0 / float(g_samples*4);
 
 	float rotatePhase = hash12(i.uv*100.0f) * 6.28f;
@@ -303,7 +298,7 @@ float PS_BLUR_GAUSS(VertexOutput input) : SV_TARGET
 	float final = 0.0f;
 
 	//create the 1-D kernel
-	float sigma = g_blurSigma; //7.0;
+	float sigma = 7.0;
 	float Z = 0.0;
 	for (int i = 0; i <= kSize; ++i)
 	{
