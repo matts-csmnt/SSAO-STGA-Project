@@ -256,10 +256,10 @@ public:
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_02")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
 		);
-		m_SSAOShaders[KGPUZENAlchemy].init(systems.pD3DDevice
+		/*m_SSAOShaders[KGPUZENAlchemy].init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_SSAO_04")
 			, { VertexFormatTraits<MeshVertex>::desc, VertexFormatTraits<MeshVertex>::size }
-		);
+		);*/
 		
 		m_GaussBlur.init(systems.pD3DDevice
 			, ShaderSetDesc::Create_VS_PS("../Assets/Shaders/SSAOShaders.fx", "VS_Passthrough", "PS_BLUR_GAUSS")
@@ -335,16 +335,23 @@ public:
 		ImGui::Begin("Frame Analysis");
 			ImGui::Checkbox("Enable Profiling", &m_enableProfiling);
 
+			float averageFrame(0);
+
 			//Copy data over for now... 
 			int elm = 0;
 			for (float f : m_frameData._Get_container())
 			{
 				test_data[elm++] = f;
+				averageFrame += f;
 			}
+			
+			char buffer[16];	//Collect an average of all samples...
+			averageFrame /= MAX_FRAMES_FOR_PROFILE_QUEUE;
+			sprintf(buffer, "AVG: %f", averageFrame);
 
 			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Technique Timing (ms):", m_profilingDataQueue.size());
 			ImVec2 plotextent(ImGui::GetContentRegionAvailWidth(), 100);
-			ImGui::PlotLines("Technique (ms)", &test_data[0], m_frameData.size(), 0, nullptr, 0, kTargetFrameTimeMs, plotextent);
+			ImGui::PlotLines("Technique (ms)", &test_data[0], m_frameData.size(), 0, buffer, 0, kTargetFrameTimeMs, plotextent);
 
 			ImGui::TextColored(ImVec4(0, 1, 0, 1), "Profiling Query Queue Sz: %i", m_profilingDataQueue.size());
 
@@ -400,7 +407,7 @@ public:
 		ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 6.0f);
 		ImGui::SliderFloat("Scale", &m_scale, 0.0f, 6.0f);
 		ImGui::SliderFloat("Bias", &m_bias, 0.0f, 1.0f);
-		ImGui::SliderInt("Samples", &m_samples_mult, 1, 16, "%.0f * 4");
+		ImGui::SliderInt("Samples", &m_samples_mult, 1, 8, "%.0f * 4");
 		//--
 
 		//Another value to play with for comparison with spiral kernel
@@ -1340,13 +1347,13 @@ private:
 	enum SSAOType {
 		kStandardSSAO = 0,
 		kSpiralSSAO,
-		KGPUZENAlchemy,
+		//KGPUZENAlchemy,
 		kMaxSSAOTypes
 	};
 	std::string m_ssaoNames[kMaxSSAOTypes] = {
 		"Default Technique",
-		"Spiral Kernel",
-		"GPU ZEN: Alchemy Spiral"
+		"Spiral Kernel"
+		//"GPU ZEN: Alchemy Spiral"
 	};
 
 	enum BlurType {

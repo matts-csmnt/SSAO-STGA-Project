@@ -200,7 +200,7 @@ float PS_SSAO_02(VertexOutput i) : SV_TARGET
 }
 
 //---------------------------------------------------------------------------------------------------
-//GPU ZEN 1
+//GPU ZEN 1 -- Not Implemented...
 //---------------------------------------------------------------------------------------------------
 
 #define PI				3.1415f
@@ -234,7 +234,6 @@ float InterleavedGradientNoise(float2 position_screen)
 	return frac(magic.z * frac(dot(position_screen, magic.xy)));
 }
 
-
 float AlchemyNoise(int2 position_screen)
 {
 	return 30.0f*(position_screen.x^position_screen.y) + 10.0f*(position_screen.x*position_screen.y);
@@ -242,7 +241,7 @@ float AlchemyNoise(int2 position_screen)
 
 float PS_SSAO_04(VertexOutput i) : SV_TARGET
 {
-	float2 radius_screen = 0.5;/*radius_world / i.vpos.z;
+	float2 radius_screen = float2(10,10);/*radius_world / i.vpos.z;
 	radius_screen = min(radius_screen, maxRadius_screen);
 	radius_screen.y *= aspect;*/
 
@@ -255,8 +254,8 @@ float PS_SSAO_04(VertexOutput i) : SV_TARGET
 	{
 		float2 sampleOffset = 0.0f;
 		
-		//sampleOffset = VogelDiskOffset(i, TWO_PI*noise);
-		sampleOffset = AlchemySpiralOffset(j, alchemyNoise);
+		sampleOffset = VogelDiskOffset(j, TWO_PI*noise);
+		//sampleOffset = AlchemySpiralOffset(j, alchemyNoise);
 
 		float2 sampleTexCoord = i.uv + radius_screen * sampleOffset;
 
