@@ -22,8 +22,8 @@
     <ProjectGuid>{861E3C91-72EB-969C-9B04-85448730CC2A}</ProjectGuid>
     <IgnoreWarnCompileDuplicatedFilename>true</IgnoreWarnCompileDuplicatedFilename>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>Deferred</RootNamespace>
-    <ProjectName>SSAO</ProjectName>
+    <RootNamespace>SSAO</RootNamespace>
+    <ProjectName>STGA_Assignment_SSAO</ProjectName>
     <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -200,7 +200,7 @@
     <ClCompile Include="SSAO_main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="fbx_load.h" />
+    <ClInclude Include="..\Libraries\fbx_load.h" />
     <ClInclude Include="Samplers.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

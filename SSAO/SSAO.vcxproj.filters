@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <FxCompile Include="..\Assets\Shaders\SSAOShaders.fx">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="..\Assets\Shaders\DeferredShaders.fx">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="SSAO_main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Libraries\fbx_load.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Samplers.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{1b62eb68-199b-4121-a90f-b470c91107dc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{1bcc7460-06e7-4c0b-b006-d45defdcba9b}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
