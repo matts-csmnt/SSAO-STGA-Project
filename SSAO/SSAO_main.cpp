@@ -764,6 +764,10 @@ public:
 			ImGui::ColorEdit4("Light Colour", (float*)&light_col);
 			m_lights.front().m_shaderInfo.m_vColour = light_col;
 
+			static v4 light_amb = v4(0.15, 0.15, 0.2, 1);
+			ImGui::ColorEdit4("Light Ambient", (float*)&light_amb);
+			m_lights.front().m_shaderInfo.m_vAmbient = light_amb;
+
 			for (u32 i = 0; i < (u32)maxLights; ++i)
 			{
 				auto& rLight(m_lights[i]);
