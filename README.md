@@ -1,5 +1,9 @@
 ### An Exploration Into... 
 # Screen Space Ambient Occlusion
+Carried out as part of my MSc in Games Software Development.
+
+In this repository you'll find a 'mini-research' project I carried out into implementing and analysing the performance of SSAO for games.
+I may include the paper that acompanies this project in the future.
 
 ![application screenshot](https://github.com/matts-csmnt/STGA_SSAO/blob/master/Media/img/ssao_app.jpeg "Application Screenshot")
 
