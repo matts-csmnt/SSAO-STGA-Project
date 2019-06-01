@@ -9,6 +9,8 @@ I may include the paper that acompanies this project in the future.
 
 ### Libraries used:
 - [Assimp (Open Asset Import Library)](http://www.assimp.org/)
+For ease of demoing this application, release configuration binaries of Assimp 'should' be included in this repo.
+- [ ] Todo: remove these and build from source code.
 
 ### Sources:
 - [José María Méndez - A Simple and Practical Approach to SSAO](https://www.gamedev.net/articles/programming/graphics/a-simple-and-practical-approach-to-ssao-r2753)
